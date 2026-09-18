@@ -707,13 +707,31 @@ label.field {
   width: 100%;
   background: #f1f5f9;
 }
+.map-header-strip {
+  background: #ffffff;
+  border-bottom: 1px solid var(--border-card);
+  padding: 8px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  z-index: 10;
+}
 .map-toolbar {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 420;
   display: flex;
   gap: 6px;
+  align-items: center;
+}
+.leaflet-popup-content-wrapper {
+  border-radius: 8px !important;
+  box-shadow: 0 12px 30px -4px rgba(10, 30, 59, 0.25) !important;
+  border: 1px solid var(--border-card) !important;
+  padding: 2px !important;
+}
+.leaflet-popup-content {
+  margin: 10px 14px !important;
+  line-height: 1.45 !important;
 }
 .mtoggle {
   font-size: 11px;
@@ -4027,19 +4045,28 @@ function renderMissionControl() {
         </div>
 
         <!-- Tactical Map -->
-        <div class="map-col panel">
-          <div class="map-toolbar">
-            <button class="mtoggle on" id="mt-spill" onclick="toggleMapLayer('spill', this)">Slick</button>
-            <button class="mtoggle on" id="mt-ais" onclick="toggleMapLayer('ais', this)">AIS Fleet</button>
-            <button class="mtoggle on" id="mt-drift" onclick="toggleMapLayer('drift', this)">Drift Vectors</button>
-            <button class="mtoggle on" id="mt-prob" onclick="toggleMapLayer('prob', this)">Origin Zone</button>
+        <div class="map-col panel" style="display:flex; flex-direction:column; overflow:hidden;">
+          <div class="map-header-strip">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 6px rgba(34,197,94,0.6);"></span>
+              <b style="font-size:11.5px; color:var(--navy-dark); text-transform:uppercase; letter-spacing:0.5px;">Tactical Geospatial Map</b>
+            </div>
+            <div class="map-toolbar">
+              <span style="font-size:10px; font-weight:700; color:var(--text-dim); text-transform:uppercase; margin-right:2px;">Layers:</span>
+              <button class="mtoggle on" id="mt-spill" onclick="toggleMapLayer('spill', this)">Slick</button>
+              <button class="mtoggle on" id="mt-ais" onclick="toggleMapLayer('ais', this)">AIS Fleet</button>
+              <button class="mtoggle on" id="mt-drift" onclick="toggleMapLayer('drift', this)">Drift Vectors</button>
+              <button class="mtoggle on" id="mt-prob" onclick="toggleMapLayer('prob', this)">Origin Zone</button>
+            </div>
           </div>
-          <div id="missionMap"></div>
-          
-          <div class="map-timeline-bar">
-            <button class="btn sm" id="playScrubberBtn" onclick="togglePlayScrubber()">▶ Play</button>
-            <input type="range" class="timeline-slider" id="timeScrubber" min="-48" max="12" value="-24" step="1" oninput="onScrubTime(this.value)">
-            <div class="timeline-label" id="timelineLabel">T - 24h</div>
+          <div style="position:relative; flex:1; min-height:480px; width:100%;">
+            <div id="missionMap" style="height:100%; width:100%;"></div>
+            
+            <div class="map-timeline-bar">
+              <button class="btn sm" id="playScrubberBtn" onclick="togglePlayScrubber()">▶ Play</button>
+              <input type="range" class="timeline-slider" id="timeScrubber" min="-48" max="12" value="-24" step="1" oninput="onScrubTime(this.value)">
+              <div class="timeline-label" id="timelineLabel">T - 24h</div>
+            </div>
           </div>
         </div>
 
@@ -9039,7 +9066,7 @@ function renderMapLayers() {
             <button onclick="jumpToMap('${v.mmsi}')" style="flex:1; padding:5px 6px; font-size:10.5px; font-weight:600; background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1; border-radius:4px; cursor:pointer;">Focus CPA</button>
           </div>
         </div>
-      `);
+      `, { autoPan: true, autoPanPadding: [25, 25], maxWidth: 280 });
       mapLayers.vessels.push({ v, line, marker });
     });
   }
