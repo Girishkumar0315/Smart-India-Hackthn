@@ -514,7 +514,21 @@ label.field {
   border-top: 1px solid var(--border-card);
   background: #ffffff;
 }
-.user-chip { display: flex; align-items: center; gap: 10px; }
+.user-chip { 
+  display: flex; 
+  align-items: center; 
+  gap: 10px; 
+  cursor: pointer; 
+  padding: 6px 8px; 
+  border-radius: 8px; 
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.user-chip:hover {
+  background: rgba(30, 58, 138, 0.06);
+}
+.user-chip:active {
+  transform: scale(0.98);
+}
 .user-avatar {
   width: 32px;
   height: 32px;
@@ -2574,20 +2588,12 @@ body {
       <div class="nav-item" data-sec="reports" onclick="setSection('reports')">▦ Reports</div>
     </div>
 
-    <div class="nav-sep"></div>
-    <div class="nav-section">
-      <div class="nav-label">Configuration</div>
-      <div class="nav-item" data-sec="settings" onclick="setSection('settings')">⚙ Settings &amp; API</div>
-      <div class="nav-item" data-sec="security" onclick="setSection('security')">⛨ Audit Log</div>
-      <div class="nav-item" data-sec="profile" onclick="setSection('profile')">◉ Profile</div>
-    </div>
-
     <div class="sidebar-foot">
-      <div class="user-chip">
-        <div class="user-avatar" id="userAvatar">GK</div>
+      <div class="user-chip" onclick="setSection('profile')" title="View Investigator Profile" id="sidebarUserChip">
+        <div class="user-avatar" id="userAvatar">--</div>
         <div class="user-meta">
-          <b id="userName">Girish Kumar</b>
-          <span id="userRole">ANALYST · MARITIME INTELLIGENCE</span>
+          <b id="userName">Investigator</b>
+          <span id="userRole">ANALYST</span>
         </div>
       </div>
       <div style="margin-top:10px;">
@@ -2649,17 +2655,15 @@ function toast(title, msg, kind) {
    AUTH STATE & STORAGE
 ===================================================================================== */
 const DEFAULT_USERS = [
-  { email: "girishsunnykumar006@gmail.com", password: "Analyst@123", name: "Girish Kumar", org: "OceanTrace Maritime Analytics", role: "ANALYST" },
-  { email: "admin@oceantrace.ai", password: "Admin@123", name: "Girish Kumar (Admin)", org: "Surveillance Command", role: "ADMIN" },
-  { email: "viewer@oceantrace.ai", password: "Viewer@123", name: "Girish Kumar (Viewer)", org: "Coast Guard Liaison", role: "VIEWER" },
+  { email: "analyst@oceantrace.ai", password: "Analyst@123", name: "Maritime Analyst", org: "OceanTrace Maritime Intelligence", role: "ANALYST" }
 ];
 
 let USERS = JSON.parse(localStorage.getItem('oceantrace_users') || JSON.stringify(DEFAULT_USERS));
 let currentUser = JSON.parse(localStorage.getItem('oceantrace_current_user') || 'null');
-if(currentUser && (currentUser.name === "Dr. R. Sharma" || currentUser.email === "analyst@oceantrace.ai")) {
-  currentUser.name = "Girish Kumar";
-  currentUser.email = "girishsunnykumar006@gmail.com";
-  try { localStorage.setItem('oceantrace_current_user', JSON.stringify(currentUser)); } catch(e) {}
+// Purge legacy mock data or previous test account overrides so sessions reflect real user
+if(currentUser && ((currentUser.email === "girishsunnykumar006@gmail.com" && !currentUser.isGoogle) || currentUser.email === "analyst@oceantrace.ai" || currentUser.name === "Dr. R. Sharma")) {
+  currentUser = null;
+  try { localStorage.removeItem('oceantrace_current_user'); } catch(e) {}
 }
 let sessionStart = new Date();
 let auditLog = JSON.parse(localStorage.getItem('oceantrace_audit_log') || '[]');
@@ -2705,12 +2709,8 @@ function initSupabase() {
 async function saveActivityToSupabase(entry) {
   if (!supabaseClient) return;
   try {
-    const userEmail = (currentUser && currentUser.email && currentUser.email !== "analyst@oceantrace.ai") 
-      ? currentUser.email 
-      : "girishsunnykumar006@gmail.com";
-    const userName = (currentUser && currentUser.name && currentUser.name !== "Dr. R. Sharma") 
-      ? currentUser.name 
-      : "Girish Kumar";
+    const userEmail = (currentUser && currentUser.email) ? currentUser.email : "analyst@oceantrace.ai";
+    const userName = (currentUser && currentUser.name) ? currentUser.name : "Analyst";
     const record = {
       user_email: userEmail,
       user_name: userName,
@@ -2847,7 +2847,7 @@ function newInvestigationShell(name, description, priority) {
     description: description || "Sentinel-1 SAR scene with high-density shipping lane overlap.",
     priority: priority || "HIGH",
     status: "IN PROGRESS",
-    owner: (currentUser && currentUser.name && currentUser.name !== "Dr. R. Sharma") ? currentUser.name : "Girish Kumar",
+    owner: (currentUser && currentUser.name) ? currentUser.name : "Analyst",
     createdAt: new Date(),
     stagesDone: new Set(),
     satellite: null,
@@ -3354,21 +3354,32 @@ function fetchGoogleUserProfile(accessToken) {
   });
 }
 
-function loginAsGoogleUser(u) {
-  currentUser = u;
-  try { localStorage.setItem('oceantrace_current_user', JSON.stringify(u)); } catch(e) {}
+function updateUserUI(u) {
   const av = document.getElementById('userAvatar');
+  const un = document.getElementById('userName');
+  const ur = document.getElementById('userRole');
+  if(!u) {
+    if(av) av.textContent = "--";
+    if(un) un.textContent = "Investigator";
+    if(ur) ur.textContent = "ANALYST";
+    return;
+  }
   if(av) {
     if(u.avatarUrl) {
       av.innerHTML = `<img src="${u.avatarUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" alt="Avatar">`;
     } else {
-      av.textContent = u.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+      const initials = (u.name || u.email || 'U').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+      av.textContent = initials || "U";
     }
   }
-  const un = document.getElementById('userName');
-  if(un) un.textContent = u.name;
-  const ur = document.getElementById('userRole');
-  if(ur) ur.textContent = `${u.role} · GOOGLE OAUTH`;
+  if(un) un.textContent = u.name || u.email;
+  if(ur) ur.textContent = `${u.role || 'ANALYST'} · ${u.isGoogle ? 'GOOGLE OAUTH' : (u.org || 'MARITIME INTELLIGENCE')}`;
+}
+
+function loginAsGoogleUser(u) {
+  currentUser = u;
+  try { localStorage.setItem('oceantrace_current_user', JSON.stringify(u)); } catch(e) {}
+  updateUserUI(u);
   audit("USER LOGGED IN (GOOGLE OAUTH)", u.email);
 
   // Redirect to originally selected section
@@ -3477,12 +3488,7 @@ async function handleRegister() {
 function loginAs(u) {
   currentUser = u;
   try { localStorage.setItem('oceantrace_current_user', JSON.stringify(u)); } catch(e) {}
-  const av = document.getElementById('userAvatar');
-  if(av) av.textContent = u.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
-  const un = document.getElementById('userName');
-  if(un) un.textContent = u.name;
-  const ur = document.getElementById('userRole');
-  if(ur) ur.textContent = `${u.role} · ${u.org || 'MARITIME INTELLIGENCE'}`;
+  updateUserUI(u);
   audit("USER LOGGED IN", "—");
 
   // Redirect to originally selected section
@@ -3508,41 +3514,23 @@ function loginAs(u) {
 function logout() {
   audit("USER LOGGED OUT", activeId || "—");
   currentUser = null;
-  localStorage.removeItem('oceantrace_current_user');
+  try {
+    localStorage.removeItem('oceantrace_current_user');
+    sessionStorage.removeItem('oceantrace_current_view');
+  } catch(e) {}
+  updateUserUI(null);
   activeId = null;
   go('login');
   toast("Signed Out", "You have been logged out.", "neutral");
 }
 
-function quickLaunchDemo() {
-  if(!currentUser) {
-    loginQuick('analyst', 'mission-control');
-  } else {
-    go('app');
-    setSection('mission-control');
-  }
-  if(!activeId || !activeInv()) {
-    loadDemoMission();
-  }
-  setTimeout(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    if(missionMap) {
-      missionMap.invalidateSize(true);
-      const inv = activeInv();
-      if(inv && inv.detection && inv.detection.centroid) {
-        missionMap.setView(inv.detection.centroid, 7);
-      }
-    }
-  }, 100);
-  setTimeout(() => {
-    if(missionMap) missionMap.invalidateSize(true);
-  }, 350);
-}
+
 
 /* =====================================================================================
    NAVIGATION ROUTER
 ===================================================================================== */
 function go(view) {
+  try { sessionStorage.setItem('oceantrace_current_view', view); } catch(e) {}
   ['landing', 'login', 'register', 'app'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if(v === view) {
@@ -4329,7 +4317,7 @@ function printReportOnly() {
       <p style="font-size:10px; color:#64748b;">${LEGAL_DISCLAIMER}</p>
 
       <div class="footer">
-        <div>Investigator: <b>${currentUser?.name || 'Girish Kumar'}</b> (${currentUser?.role || 'ANALYST'})</div>
+        <div>Investigator: <b>${currentUser?.name || 'Analyst'}</b> (${currentUser?.role || 'ANALYST'})</div>
         <div>OceanTrace Maritime Intelligence Dossier · Page 1 of 1</div>
       </div>
     </body>
@@ -8580,7 +8568,11 @@ function toggleMapLayer(kind, btn) {
 }
 
 function jumpToMap(mmsi) {
-  if(!currentUser) loginQuick('analyst', 'mission-control');
+  if(!currentUser) {
+    redirectAfterLogin = 'mission-control';
+    go('login');
+    return;
+  }
   go('app');
   
   let inv = activeInv();
@@ -8961,15 +8953,28 @@ function renderSecurity() {
 }
 
 function renderProfile() {
+  const u = currentUser || { name: 'Investigator', email: '—', org: 'Maritime Intelligence', role: 'ANALYST' };
   return `
   <div class="panel" style="max-width:540px; margin:0 auto;">
-    <div class="panel-head"><h3>Investigator Profile</h3></div>
+    <div class="panel-head" style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 style="margin:0;">Investigator Profile</h3>
+      <span class="badge ${currentUser?.isGoogle ? 'success' : 'neutral'}">${currentUser?.isGoogle ? '✓ Google Verified' : 'Standard Session'}</span>
+    </div>
     <div class="panel-body">
-      <div class="metric-row"><span class="k">Name</span><span class="v">${escapeHtml(currentUser.name)}</span></div>
-      <div class="metric-row"><span class="k">Agency</span><span class="v">${escapeHtml(currentUser.org)}</span></div>
-      <div class="metric-row"><span class="k">Role</span><span class="v">${currentUser.role}</span></div>
-      <div class="metric-row"><span class="k">Email</span><span class="v">${escapeHtml(currentUser.email)}</span></div>
-      <div style="margin-top:20px;">
+      <div style="display:flex; align-items:center; gap:16px; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--border-card);">
+        <div style="width:54px; height:54px; border-radius:50%; overflow:hidden; background:var(--blue-subtle); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:18px; color:var(--blue-primary); border:2px solid var(--blue-border);">
+          ${u.avatarUrl ? `<img src="${u.avatarUrl}" style="width:100%; height:100%; object-fit:cover;" alt="Profile">` : (u.name || 'U').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+        </div>
+        <div>
+          <div style="font-size:16px; font-weight:700; color:var(--navy-dark);">${escapeHtml(u.name || 'Investigator')}</div>
+          <div style="font-size:12px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(u.email || '—')}</div>
+        </div>
+      </div>
+      <div class="metric-row"><span class="k">Agency / Organization</span><span class="v">${escapeHtml(u.org || 'Maritime Intelligence')}</span></div>
+      <div class="metric-row"><span class="k">System Access Role</span><span class="v">${u.role || 'ANALYST'}</span></div>
+      <div class="metric-row"><span class="k">Authentication Source</span><span class="v">${u.isGoogle ? 'Google Identity Services (OAuth 2.0)' : 'Credential Authentication'}</span></div>
+      <div style="margin-top:24px; display:flex; gap:10px;">
+        <button class="btn ghost" onclick="setSection('mission-control')">← Back to Mission Control</button>
         <button class="btn danger" onclick="logout()">Sign Out</button>
       </div>
     </div>
@@ -8988,21 +8993,17 @@ function postRenderHooks() {
   }
 }
 
-function quickLaunchSegFormer() {
-  if(!currentUser) {
-    loginQuick('analyst', 'segformer');
-  } else {
-    go('app');
-    setSection('segformer');
-  }
-  setTimeout(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    initSegFormerStudio();
-  }, 100);
-}
+// Initialize User UI immediately on load
+updateUserUI(currentUser);
 
-// Boot to landing view
-go('landing');
+// Boot logic: restore active session view if user was logged in, else display landing
+const savedView = (typeof sessionStorage !== 'undefined') ? sessionStorage.getItem('oceantrace_current_view') : null;
+if(currentUser && savedView === 'app') {
+  go('app');
+  setSection(currentSection || 'mission-control');
+} else {
+  go('landing');
+}
 
 // =====================================================================================
 // =====================================================================================
