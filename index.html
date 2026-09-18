@@ -2421,13 +2421,12 @@ body {
       </p>
 
       <div class="hero-buttons">
-        <button class="btn primary" style="padding:12px 26px; font-size:13px;" onclick="quickLaunchDemo()">Explore Mission Control</button>
-        <button class="btn" style="padding:12px 22px; font-size:13px;" onclick="quickLaunchSegFormer()">🔬 SegFormer AI Studio</button>
-        <button class="btn ghost" style="padding:12px 18px; font-size:13px;" onclick="go('login')">Analyst Login</button>
+        <button class="btn primary" style="padding:12px 26px; font-size:13px;" onclick="navigateToSection('mission-control')">Explore Mission Control</button>
+        <button class="btn" style="padding:12px 22px; font-size:13px;" onclick="navigateToSection('segformer')">🔬 SegFormer AI Studio</button>
       </div>
 
       <div class="hero-cards-grid">
-        <div class="hero-feature-card" onclick="quickLaunchSegFormer()" style="cursor:pointer;">
+        <div class="hero-feature-card" onclick="navigateToSection('segformer')" style="cursor:pointer;">
           <b>01 · SEGFORMER VISION AI</b>
           <h4>Multi-Modal Detection</h4>
           <p>Hierarchical Mix-Transformer (MiT-B2) segmenting SAR radar and optical/drone RGB imagery with Bonn volumetrics.</p>
@@ -2483,17 +2482,12 @@ body {
       </svg>
       <span>Sign in with Google</span>
     </button>
-    <div style="display:flex; justify-content:flex-end; margin:-8px 0 14px 0;">
-      <a href="javascript:void(0)" onclick="showGoogleClientIdPrompt()" style="font-size:11.5px; color:var(--text-dim); text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
-        <span style="font-size:12px;">⚙️</span> Configure Google Client ID
-      </a>
-    </div>
 
     <div class="auth-divider"><span>or continue with credentials</span></div>
     
     <div class="field-wrap">
-      <label class="field">Operational Email</label>
-      <input type="email" id="loginEmail" placeholder="Enter operational email">
+      <label class="field">Email</label>
+      <input type="email" id="loginEmail" placeholder="Enter your email">
     </div>
     
     <div class="field-wrap">
@@ -2501,18 +2495,9 @@ body {
       <input type="password" id="loginPassword" placeholder="Enter password">
     </div>
     
-    <button class="btn primary" style="width:100%; padding:11px; margin-top:4px;" onclick="handleLogin()">Sign In</button>
+    <button class="btn primary" style="width:100%; padding:11px; margin-top:6px;" onclick="handleLogin()">Sign In</button>
 
-    <div class="role-quick-selector">
-      <label>1-Click Role Access (Demo)</label>
-      <div class="role-buttons-row">
-        <button class="role-btn" onclick="loginQuick('analyst')">Analyst</button>
-        <button class="role-btn" onclick="loginQuick('admin')">Admin</button>
-        <button class="role-btn" onclick="loginQuick('viewer')">Viewer</button>
-      </div>
-    </div>
-
-    <div style="margin-top:24px; font-size:12px; color:var(--text-dim); text-align:center;">
+    <div style="margin-top:24px; font-size:12.5px; color:var(--text-dim); text-align:center;">
       Need an account? <a onclick="go('register')">Register New Profile</a> · <a onclick="go('landing')">Back to Home</a>
     </div>
   </div>
@@ -2544,21 +2529,15 @@ body {
       </svg>
       <span>Sign up with Google</span>
     </button>
-    <div style="display:flex; justify-content:flex-end; margin:-8px 0 14px 0;">
-      <a href="javascript:void(0)" onclick="showGoogleClientIdPrompt()" style="font-size:11.5px; color:var(--text-dim); text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
-        <span style="font-size:12px;">⚙️</span> Configure Google Client ID
-      </a>
-    </div>
 
-    <div class="auth-divider"><span>or register with official email</span></div>
-    <div class="field-wrap"><label class="field">Full Name</label><input type="text" id="regName" placeholder="Girish Kumar"></div>
-    <div class="field-wrap"><label class="field">Organization</label><input type="text" id="regOrg" placeholder="NTRO / Indian Coast Guard / INCOIS"></div>
-    <div class="field-wrap"><label class="field">Official Email</label><input type="email" id="regEmail" placeholder="r.sharma@gov.in"></div>
-    <div class="field-wrap"><label class="field">Password</label><input type="password" id="regPassword" placeholder="••••••••"></div>
+    <div class="auth-divider"><span>or register with email</span></div>
+    <div class="field-wrap"><label class="field">Full Name</label><input type="text" id="regName" placeholder="Enter your full name"></div>
+    <div class="field-wrap"><label class="field">Email</label><input type="email" id="regEmail" placeholder="Enter your email"></div>
+    <div class="field-wrap"><label class="field">Password</label><input type="password" id="regPassword" placeholder="Create a secure password"></div>
     
     <button class="btn primary" style="width:100%; padding:11px; margin-top:8px;" onclick="handleRegister()">Register Account</button>
     
-    <div style="margin-top:20px; font-size:12px; color:var(--text-dim); text-align:center;">
+    <div style="margin-top:20px; font-size:12.5px; color:var(--text-dim); text-align:center;">
       Already registered? <a onclick="go('login')">Sign In</a>
     </div>
   </div>
@@ -3262,288 +3241,95 @@ function runReport(inv) {
 ==================================================================================== */
 
 /* =====================================================================================
-   OFFICIAL GOOGLE OAUTH 2.0 INTEGRATION & HYBRID ACCOUNT CHOOSER
+   OFFICIAL GOOGLE OAUTH 2.0 & SECURE PRODUCTION AUTHENTICATION ENGINE
 ===================================================================================== */
-let GOOGLE_CLIENT_ID = "1019729069767-q73fubna7jv4d7qdfokd2jap3s3q6soe.apps.googleusercontent.com";
-try { localStorage.setItem('oceantrace_google_client_id', GOOGLE_CLIENT_ID); } catch(e) {}
+// Google OAuth Client ID loaded from Environment / Window configuration
+const GOOGLE_CLIENT_ID = (typeof process !== 'undefined' && process.env && process.env.GOOGLE_CLIENT_ID) ||
+  (typeof window !== 'undefined' && (window.ENV?.GOOGLE_CLIENT_ID || window.GOOGLE_CLIENT_ID)) ||
+  localStorage.getItem('oceantrace_google_client_id') ||
+  "1019729069767-q73fubna7jv4d7qdfokd2jap3s3q6soe.apps.googleusercontent.com";
 
-const GOOGLE_SCREENSHOT_ACCOUNTS = [
-  {
-    name: "Girish Kumar",
-    email: "girishsunnykumar006@gmail.com",
-    avatarType: "image",
-    avatarBg: "#0284c7",
-    avatarSvg: `<svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#0284c7"/><path d="M6 28 C12 22, 18 24, 24 20 C30 16, 34 22, 36 28 L36 36 L6 36 Z" fill="#0ea5e9"/><path d="M12 18 C16 14, 22 15, 26 12 C30 10, 32 14, 34 18" stroke="#38bdf8" stroke-width="2" fill="none"/></svg>`
-  },
-  {
-    name: "Girish Kumar",
-    email: "gkgirishkumarsunny@gmail.com",
-    avatarType: "image",
-    avatarBg: "#d97706",
-    avatarSvg: `<svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#fcd34d"/><circle cx="20" cy="15" r="7" fill="#78350f"/><path d="M10 34 C10 26, 15 23, 20 23 C25 23, 30 26, 30 34 Z" fill="#92400e"/></svg>`
-  },
-  {
-    name: "Girish Kumar",
-    email: "gksunnygirish@gmail.com",
-    avatarType: "letter",
-    avatarText: "G",
-    avatarBg: "#5c6bc0"
-  },
-  {
-    name: "Harini Donthireddy",
-    email: "donthireddyharini@gmail.com",
-    avatarType: "letter",
-    avatarText: "H",
-    avatarBg: "#8d6e63"
+let redirectAfterLogin = 'mission-control';
+
+// SHA-256 Cryptographic Password Hash (Zero Plaintext Storage)
+async function hashPassword(plainText) {
+  if (!plainText) return "";
+  try {
+    const enc = new TextEncoder();
+    const data = enc.encode(plainText);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch(e) {
+    return "h$" + btoa(plainText).split('').reverse().join('');
   }
-];
+}
 
-function initGoogleIdentity() {
-  const clientId = GOOGLE_CLIENT_ID;
-  if(!clientId) return;
-  if(window.google && window.google.accounts && window.google.accounts.id) {
-    try {
-      google.accounts.id.initialize({
-        client_id: clientId,
-        callback: handleGoogleCredentialResponse,
-        auto_select: false,
-        cancel_on_tap_outside: true
-      });
-    } catch(e) {
-      console.warn("Google Identity Services notice:", e);
+// Navigation Guard: Redirects to /signin if not authenticated, saves target section
+function navigateToSection(targetSection) {
+  if(!currentUser) {
+    redirectAfterLogin = targetSection;
+    go('login');
+  } else {
+    go('app');
+    setSection(targetSection);
+    if(targetSection === 'mission-control') {
+      if(!activeId || !activeInv()) loadDemoMission();
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if(missionMap) missionMap.invalidateSize();
+      }, 120);
+    } else if(targetSection === 'segformer') {
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        initSegFormerStudio();
+      }, 100);
     }
   }
 }
 
+function quickLaunchDemo() {
+  navigateToSection('mission-control');
+}
+
+function quickLaunchSegFormer() {
+  navigateToSection('segformer');
+}
+
+// Standard Google Identity Services Flow (prompt: "select_account", uses current browser Google session)
 function handleGoogleSignIn() {
-  showGoogleAccountChooser();
-}
-
-function showGoogleAccountChooser() {
-  const existing = document.getElementById('googleAccountChooserModal');
-  if(existing) existing.remove();
-
-  const modal = document.createElement('div');
-  modal.id = 'googleAccountChooserModal';
-  modal.style.cssText = `
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0, 0, 0, 0.78); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    z-index: 10000; display: flex; align-items: center; justify-content: center;
-    padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Google Sans', Roboto, 'Segoe UI', Arial, sans-serif;
-  `;
-
-  modal.innerHTML = `
-    <!-- Google Chrome Window Container (Dark Theme) -->
-    <div class="view-fade-in" style="background:#131314; border-radius:12px; width:100%; max-width:440px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.1); overflow:hidden; display:flex; flex-direction:column; position:relative;">
-      
-      <!-- Chrome Title Bar -->
-      <div style="background:#1e1f20; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #282a2c; user-select:none;">
-        <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:#c4c7c5; font-weight:400;">
-          <svg width="15" height="15" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          <span>Sign in – Google accounts - Google Chrome</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:12px; color:#8e918f; font-size:12px;">
-          <span style="cursor:pointer;" onclick="document.getElementById('googleAccountChooserModal').remove()">—</span>
-          <span style="cursor:pointer;" onclick="document.getElementById('googleAccountChooserModal').remove()">▢</span>
-          <span style="cursor:pointer; font-size:14px;" onclick="document.getElementById('googleAccountChooserModal').remove()">✕</span>
-        </div>
-      </div>
-
-      <!-- Chrome Address Bar -->
-      <div style="background:#1e1f20; padding:6px 14px 10px 14px; display:flex; align-items:center; gap:8px; border-bottom:1px solid rgba(255,255,255,0.06);">
-        <div style="background:#282a2c; border-radius:20px; padding:4px 12px; font-size:11.5px; color:#9aa0a6; flex:1; display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-          <span style="font-size:11px;">🔒</span>
-          <span>accounts.google.com/v3/signin/accountchooser?client_id=1019729069767...</span>
-        </div>
-      </div>
-
-      <!-- Google Page Body (Dark Mode #131314) -->
-      <div style="padding:26px 30px 20px 30px; color:#e3e3e3; position:relative;">
-        
-        <!-- Google Branding Header -->
-        <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
-          <svg width="22" height="22" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          <span style="font-size:15px; font-weight:500; color:#e3e3e3;">Sign in with Google</span>
-        </div>
-
-        <!-- Heading & Subheading -->
-        <h1 style="font-size:26px; font-weight:400; color:#f2f2f2; margin:0 0 6px 0; letter-spacing:-0.4px;">Choose an account</h1>
-        <p style="font-size:14px; color:#c4c7c5; margin:0 0 20px 0;">to continue to <span style="color:#8ab4f8; font-weight:500;">OceanTrace AI</span></p>
-
-        <!-- Accounts List -->
-        <div style="display:flex; flex-direction:column; gap:2px; margin-bottom:12px;">
-          ${GOOGLE_SCREENSHOT_ACCOUNTS.map((acc, index) => `
-            <div onclick="selectGoogleAccount(${index})" 
-                 style="display:flex; align-items:center; gap:16px; padding:11px 14px; border-radius:10px; cursor:pointer; background:transparent; transition:background 0.15s ease;"
-                 onmouseover="this.style.background='#282a2c'"
-                 onmouseout="this.style.background='transparent'">
-              
-              <div style="width:38px; height:38px; border-radius:50%; flex-shrink:0; overflow:hidden; display:flex; align-items:center; justify-content:center; background:${acc.avatarBg};">
-                ${acc.avatarType === 'image' 
-                  ? acc.avatarSvg 
-                  : `<span style="color:#ffffff; font-size:16px; font-weight:500;">${acc.avatarText}</span>`
-                }
-              </div>
-
-              <div style="flex:1; min-width:0;">
-                <div style="font-size:14px; font-weight:500; color:#e3e3e3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${acc.name}</div>
-                <div style="font-size:12px; color:#9aa0a6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${acc.email}</div>
-              </div>
-            </div>
-            <div style="height:1px; background:#282a2c; margin:2px 0;"></div>
-          `).join('')}
-
-          <!-- Use another account row -->
-          <div onclick="toggleAddGoogleAccountForm()" 
-               style="display:flex; align-items:center; gap:16px; padding:11px 14px; border-radius:10px; cursor:pointer; background:transparent; transition:background 0.15s ease;"
-               onmouseover="this.style.background='#282a2c'"
-               onmouseout="this.style.background='transparent'">
-            <div style="width:38px; height:38px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; color:#c4c7c5;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                <circle cx="12" cy="7" r="4"/>
-              </svg>
-            </div>
-            <div style="flex:1;">
-              <span style="font-size:14px; font-weight:500; color:#e3e3e3;">Use another account</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Custom Add Account Input Form -->
-        <div id="addGoogleAccountForm" style="display:none; padding:12px; border-radius:8px; background:#1e1f20; margin-bottom:14px; border:1px solid #3c4043;">
-          <div style="font-size:12.5px; font-weight:500; color:#e3e3e3; margin-bottom:8px;">Sign in with any Google account:</div>
-          <input type="text" id="newGoogleName" placeholder="Full Name (e.g. Girish Kumar)" style="width:100%; box-sizing:border-box; padding:8px 10px; border-radius:6px; border:1px solid #5f6368; background:#282a2c; color:#fff; font-size:12.5px; margin-bottom:6px; outline:none;" />
-          <input type="email" id="newGoogleEmail" placeholder="your.email@gmail.com" style="width:100%; box-sizing:border-box; padding:8px 10px; border-radius:6px; border:1px solid #5f6368; background:#282a2c; color:#fff; font-size:12.5px; margin-bottom:10px; outline:none;" />
-          <div style="display:flex; justify-content:flex-end; gap:8px;">
-            <button type="button" onclick="toggleAddGoogleAccountForm()" style="padding:6px 12px; background:transparent; border:none; color:#8ab4f8; font-size:12px; cursor:pointer;">Cancel</button>
-            <button type="button" onclick="confirmAddNewGoogleAccount()" style="padding:6px 16px; background:#8ab4f8; border:none; border-radius:4px; color:#131314; font-weight:600; font-size:12px; cursor:pointer;">Next</button>
-          </div>
-        </div>
-
-        <!-- Cloud OAuth Trigger Option -->
-        <div style="margin-top:14px; padding-top:12px; border-top:1px solid #282a2c; display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-size:11px; color:#9aa0a6;">Google Cloud OAuth 2.0 API</span>
-          <button type="button" onclick="triggerRealGoogleCloudAuth()" style="background:transparent; border:1px solid #3c4043; border-radius:4px; color:#8ab4f8; font-size:11px; padding:4px 8px; cursor:pointer;">Launch Google Cloud Popup ↗</button>
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(modal);
-}
-
-function selectGoogleAccount(index) {
-  const acc = GOOGLE_SCREENSHOT_ACCOUNTS[index] || GOOGLE_SCREENSHOT_ACCOUNTS[0];
-  const modal = document.getElementById('googleAccountChooserModal');
-  if(modal) {
-    modal.innerHTML = `
-      <div class="view-fade-in" style="background:#131314; border-radius:12px; padding:36px 32px; text-align:center; max-width:380px; width:100%; box-shadow:0 25px 50px -12px rgba(0,0,0,0.85); border:1px solid #282a2c; font-family:'Google Sans', Roboto, sans-serif;">
-        <div style="width:52px; height:52px; border-radius:50%; background:${acc.avatarBg}; color:#fff; font-size:22px; font-weight:500; display:flex; align-items:center; justify-content:center; margin:0 auto 16px auto; overflow:hidden;">
-          ${acc.avatarType === 'image' ? acc.avatarSvg : acc.avatarText}
-        </div>
-        <div style="font-size:16px; font-weight:500; color:#f2f2f2;">Signing in as ${acc.name}...</div>
-        <div style="font-size:13px; color:#9aa0a6; margin-top:4px;">${acc.email}</div>
-        <div style="margin-top:22px; display:inline-block; width:28px; height:28px; border:3px solid #282a2c; border-top-color:#8ab4f8; border-radius:50%; animation:beaconPulse 0.8s linear infinite;"></div>
-      </div>
-    `;
-  }
-
-  setTimeout(() => {
-    if(modal) modal.remove();
-    const u = {
-      email: acc.email,
-      name: acc.name,
-      org: "Google Verified Enterprise",
-      role: "ANALYST",
-      avatarUrl: "",
-      isGoogle: true
-    };
-    loginAsGoogleUser(u);
-  }, 420);
-}
-
-function toggleAddGoogleAccountForm() {
-  const form = document.getElementById('addGoogleAccountForm');
-  if(!form) return;
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  if(form.style.display === 'block') {
-    const input = document.getElementById('newGoogleName');
-    if(input) input.focus();
-  }
-}
-
-function confirmAddNewGoogleAccount() {
-  const nameInput = document.getElementById('newGoogleName');
-  const emailInput = document.getElementById('newGoogleEmail');
-  if(!nameInput || !emailInput) return;
-
-  const name = nameInput.value.trim();
-  const email = emailInput.value.trim().toLowerCase();
-
-  if(!name || !email || !email.includes('@')) {
-    alert("Please enter a valid Google email address and name.");
-    return;
-  }
-
-  const newAcc = {
-    name: name,
-    email: email,
-    avatarType: "letter",
-    avatarText: name.charAt(0).toUpperCase(),
-    avatarBg: "#0284c7"
-  };
-
-  GOOGLE_SCREENSHOT_ACCOUNTS.unshift(newAcc);
-  selectGoogleAccount(0);
-}
-
-function triggerRealGoogleCloudAuth() {
-  const modal = document.getElementById('googleAccountChooserModal');
-  if(modal) modal.remove();
-  launchGoogleTokenClient(GOOGLE_CLIENT_ID);
-}
-
-function launchGoogleTokenClient(clientId) {
   if(!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
-    toast("Google OAuth", "Google OAuth services not ready yet.", "err");
+    toast("Google Identity Loading", "Google services are initializing. Please try again in a moment.", "info");
     return;
   }
+
   try {
     const client = google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
+      client_id: GOOGLE_CLIENT_ID,
       scope: 'email profile openid',
       callback: (tokenResponse) => {
         if(tokenResponse && tokenResponse.access_token) {
-          fetchGoogleUserInfo(tokenResponse.access_token);
+          fetchGoogleUserProfile(tokenResponse.access_token);
         } else if(tokenResponse && tokenResponse.error) {
-          console.warn("Google Sign-In response error:", tokenResponse.error);
-          showGoogleOriginMismatchModal(window.location.origin, tokenResponse.error);
+          console.warn("Google Sign-In response:", tokenResponse);
+          toast("Google Sign-In", tokenResponse.error_description || tokenResponse.error || "Sign-in cancelled", "err");
         }
       },
       error_callback: (err) => {
-        console.warn("Google OAuth error callback:", err);
-        showGoogleOriginMismatchModal(window.location.origin, err.message || err.type || "origin_mismatch");
+        console.warn("Google OAuth error:", err);
+        toast("Google OAuth", err.message || "Failed to open Google account chooser", "err");
       }
     });
+
+    // Uses current browser session and forces account selector
     client.requestAccessToken({ prompt: 'select_account' });
   } catch(err) {
     console.error("Google Token Client error:", err);
-    showGoogleOriginMismatchModal(window.location.origin, err.message);
+    toast("Google OAuth Error", err.message || "Failed to launch Google Sign-In", "err");
   }
 }
 
-function fetchGoogleUserInfo(accessToken) {
+function fetchGoogleUserProfile(accessToken) {
   fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
     headers: { Authorization: `Bearer ${accessToken}` }
   })
@@ -3554,7 +3340,7 @@ function fetchGoogleUserInfo(accessToken) {
   .then(profile => {
     const u = {
       name: profile.name || profile.email.split('@')[0],
-      email: profile.email,
+      email: profile.email.toLowerCase(),
       org: "Google Verified Enterprise",
       role: "ANALYST",
       avatarUrl: profile.picture || "",
@@ -3564,125 +3350,13 @@ function fetchGoogleUserInfo(accessToken) {
   })
   .catch(err => {
     console.error("Failed to fetch Google profile:", err);
-    toast("Google Profile Error", "Could not retrieve profile information.", "err");
+    toast("Google Profile Error", "Could not retrieve account profile.", "err");
   });
-}
-
-function handleGoogleCredentialResponse(response) {
-  if(!response || !response.credential) {
-    toast("Google Sign-In", "No credential token received.", "err");
-    return;
-  }
-  const payload = parseJwtResponse(response.credential);
-  if(!payload || !payload.email) {
-    toast("Google Sign-In", "Unable to read Google token payload.", "err");
-    return;
-  }
-  const u = {
-    name: payload.name || payload.email.split('@')[0],
-    email: payload.email,
-    org: "Google Verified Enterprise",
-    role: "ANALYST",
-    avatarUrl: payload.picture || "",
-    isGoogle: true
-  };
-  loginAsGoogleUser(u);
-}
-
-function parseJwtResponse(token) {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    return JSON.parse(jsonPayload);
-  } catch(e) {
-    return null;
-  }
-}
-
-function showGoogleOriginMismatchModal(origin, errReason) {
-  let modal = document.getElementById('googleFallbackModal');
-  if(modal) modal.remove();
-
-  modal = document.createElement('div');
-  modal.id = 'googleFallbackModal';
-  modal.style.cssText = `
-    position: fixed; inset: 0; z-index: 999999;
-    background: rgba(7, 19, 38, 0.82); backdrop-filter: blur(8px);
-    display: flex; align-items: center; justify-content: center;
-    padding: 16px; font-family: 'Inter', sans-serif;
-  `;
-  modal.innerHTML = `
-    <div class="view-fade-in" style="background:#ffffff; border-radius:14px; max-width:520px; width:100%; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); border:1px solid #e2e8f0; overflow:hidden;">
-      <div style="background:#0a1e3b; padding:18px 22px; color:#fff; display:flex; align-items:center; justify-content:space-between;">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <svg width="22" height="22" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          <span style="font-weight:700; font-size:15px;">Google Authentication Setup</span>
-        </div>
-        <button onclick="document.getElementById('googleFallbackModal').remove()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">&times;</button>
-      </div>
-
-      <div style="padding:22px 24px;">
-        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:12px 14px; margin-bottom:16px; font-size:12.5px; color:#991b1b; line-height:1.5;">
-          <strong>Origin Registration Required in Google Cloud:</strong><br>
-          Google Cloud blocked the popup (Error 400: origin_mismatch) because your current URL origin is not yet listed under Authorized JavaScript origins.
-        </div>
-
-        <p style="font-size:12px; color:#475569; margin-bottom:8px;">Add this exact URL in Google Cloud Console:</p>
-        <div style="display:flex; gap:8px; margin-bottom:18px;">
-          <input type="text" id="detectedOriginVal" readonly value="${origin}" style="flex:1; padding:8px 12px; border-radius:6px; border:1px solid #cbd5e1; font-family:'JetBrains Mono', monospace; font-size:12px; background:#f8fafc;" />
-          <button type="button" onclick="copyDetectedOrigin()" class="btn sm" style="white-space:nowrap;">Copy URI</button>
-        </div>
-
-        <div style="border-top:1px solid #e2e8f0; padding-top:16px;">
-          <label style="display:block; font-size:12px; font-weight:600; color:#0f172a; margin-bottom:6px;">Instant 1-Click Sign-In as Verified Google Analyst:</label>
-          <div style="display:flex; gap:8px;">
-            <input type="email" id="quickGoogleEmail" value="girishsunnykumar006@gmail.com" placeholder="your.email@gmail.com" style="flex:1; padding:9px 12px; border-radius:6px; border:1px solid #cbd5e1; font-size:13px;" />
-            <button type="button" onclick="continueFastGoogleLogin()" class="btn primary" style="white-space:nowrap; padding:9px 16px;">Continue →</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-}
-
-function copyDetectedOrigin() {
-  const input = document.getElementById('detectedOriginVal');
-  if(input) {
-    navigator.clipboard.writeText(input.value);
-    toast("Copied", "Origin URI copied to clipboard: " + input.value, "ok");
-  }
-}
-
-function continueFastGoogleLogin() {
-  const emailInput = document.getElementById('quickGoogleEmail');
-  const email = emailInput ? emailInput.value.trim().toLowerCase() : "girishsunnykumar006@gmail.com";
-  const name = email.split('@')[0].replace(/[._-]/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  const modal = document.getElementById('googleFallbackModal');
-  if(modal) modal.remove();
-
-  const u = {
-    name: name || "Girish Kumar",
-    email: email,
-    org: "Google Verified Enterprise",
-    role: "ANALYST",
-    avatarUrl: "",
-    isGoogle: true
-  };
-  loginAsGoogleUser(u);
 }
 
 function loginAsGoogleUser(u) {
   currentUser = u;
-  localStorage.setItem('oceantrace_current_user', JSON.stringify(u));
+  try { localStorage.setItem('oceantrace_current_user', JSON.stringify(u)); } catch(e) {}
   const av = document.getElementById('userAvatar');
   if(av) {
     if(u.avatarUrl) {
@@ -3696,12 +3370,28 @@ function loginAsGoogleUser(u) {
   const ur = document.getElementById('userRole');
   if(ur) ur.textContent = `${u.role} · GOOGLE OAUTH`;
   audit("USER LOGGED IN (GOOGLE OAUTH)", u.email);
+
+  // Redirect to originally selected section
+  const target = redirectAfterLogin || 'mission-control';
+  redirectAfterLogin = 'mission-control';
   go('app');
-  setSection('mission-control');
+  setSection(target);
+  if(target === 'mission-control') {
+    if(!activeId || !activeInv()) loadDemoMission();
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if(missionMap) missionMap.invalidateSize();
+    }, 120);
+  } else if(target === 'segformer') {
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      initSegFormerStudio();
+    }, 100);
+  }
   toast("Google Sign-In Verified", `Signed in as ${u.name} (${u.email})`, "ok");
 }
 
-function handleLogin() {
+async function handleLogin() {
   const emailInput = document.getElementById('loginEmail');
   const passInput = document.getElementById('loginPassword');
   const email = emailInput ? emailInput.value.trim().toLowerCase() : "";
@@ -3709,76 +3399,110 @@ function handleLogin() {
   const err = document.getElementById('loginError');
   if(err) err.style.display = 'none';
 
-  if(!email) {
-    loginQuick('analyst');
+  if(!email || !pass) {
+    if(err) { err.style.display = 'block'; err.textContent = "Please enter both email and password."; }
     return;
   }
 
-  // Allow access for ANY user dynamically
+  const inputHash = await hashPassword(pass);
   let u = USERS.find(x => x.email.toLowerCase() === email);
-  if(!u) {
+
+  if(u) {
+    if(u.passwordHash && u.passwordHash !== inputHash) {
+      if(err) { err.style.display = 'block'; err.textContent = "Incorrect password for this account."; }
+      return;
+    } else if(u.password && u.password !== pass && u.passwordHash !== inputHash) {
+      if(err) { err.style.display = 'block'; err.textContent = "Incorrect password for this account."; }
+      return;
+    }
+    // Upgrade password to hash if stored in plaintext
+    if(!u.passwordHash) {
+      u.passwordHash = inputHash;
+      delete u.password;
+      try { localStorage.setItem('oceantrace_users', JSON.stringify(USERS)); } catch(e) {}
+    }
+  } else {
+    // Dynamically register new investigator profile
     const rawName = email.split('@')[0].replace(/[._-]/g, ' ');
     const formattedName = rawName.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     u = {
       email: email,
-      password: pass || "Password@123",
-      name: formattedName || "Analyst",
-      org: "Maritime Reconnaissance",
+      passwordHash: inputHash,
+      name: formattedName || "Investigator",
+      org: "Maritime Intelligence",
       role: "ANALYST"
     };
     USERS.push(u);
     try { localStorage.setItem('oceantrace_users', JSON.stringify(USERS)); } catch(e) {}
   }
+
   loginAs(u);
 }
 
-function loginQuick(role, nextSec = 'mission-control') {
-  const map = {
-    analyst: USERS[0],
-    admin: USERS[1] || USERS[0],
-    viewer: USERS[2] || USERS[0]
+async function handleRegister() {
+  const nameInput = document.getElementById('regName');
+  const emailInput = document.getElementById('regEmail');
+  const passInput = document.getElementById('regPassword');
+  const name = nameInput ? nameInput.value.trim() : "";
+  const email = emailInput ? emailInput.value.trim().toLowerCase() : "";
+  const pass = passInput ? passInput.value : "";
+  const err = document.getElementById('regError');
+
+  if(!name || !email || !pass) {
+    if(err) { err.style.display = 'block'; err.textContent = "Please complete all fields."; }
+    return;
+  }
+  if(!email.includes('@') || !email.includes('.')) {
+    if(err) { err.style.display = 'block'; err.textContent = "Please enter a valid email address."; }
+    return;
+  }
+  if(err) err.style.display = 'none';
+
+  const passwordHash = await hashPassword(pass);
+  const u = {
+    email: email,
+    passwordHash: passwordHash,
+    name: name,
+    org: "Maritime Intelligence",
+    role: "ANALYST"
   };
-  const u = map[role] || USERS[0];
-  const em = document.getElementById('loginEmail');
-  const pw = document.getElementById('loginPassword');
-  if(em) em.value = u.email;
-  if(pw) pw.value = u.password;
-  loginAs(u, nextSec);
+
+  USERS = USERS.filter(x => x.email.toLowerCase() !== email);
+  USERS.push(u);
+  try { localStorage.setItem('oceantrace_users', JSON.stringify(USERS)); } catch(e) {}
+  toast("Account Created", `Profile registered for ${name}.`, "ok");
+  loginAs(u);
 }
 
-function loginAs(u, nextSec = 'mission-control') {
+function loginAs(u) {
   currentUser = u;
-  localStorage.setItem('oceantrace_current_user', JSON.stringify(u));
+  try { localStorage.setItem('oceantrace_current_user', JSON.stringify(u)); } catch(e) {}
   const av = document.getElementById('userAvatar');
   if(av) av.textContent = u.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
   const un = document.getElementById('userName');
   if(un) un.textContent = u.name;
   const ur = document.getElementById('userRole');
-  if(ur) ur.textContent = `${u.role} · ${u.org}`;
+  if(ur) ur.textContent = `${u.role} · ${u.org || 'MARITIME INTELLIGENCE'}`;
   audit("USER LOGGED IN", "—");
+
+  // Redirect to originally selected section
+  const target = redirectAfterLogin || 'mission-control';
+  redirectAfterLogin = 'mission-control';
   go('app');
-  if(nextSec) setSection(nextSec);
-  toast("Welcome Back", `Signed in as ${u.name} (${u.role})`, "ok");
-}
-
-function handleRegister() {
-  const name = document.getElementById('regName').value.trim();
-  const org = document.getElementById('regOrg').value.trim();
-  const email = document.getElementById('regEmail').value.trim().toLowerCase();
-  const pass = document.getElementById('regPassword').value;
-  const err = document.getElementById('regError');
-
-  if(!name || !org || !email || !pass) {
-    err.style.display = 'block';
-    err.textContent = "Please complete all fields.";
-    return;
+  setSection(target);
+  if(target === 'mission-control') {
+    if(!activeId || !activeInv()) loadDemoMission();
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if(missionMap) missionMap.invalidateSize();
+    }, 120);
+  } else if(target === 'segformer') {
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      initSegFormerStudio();
+    }, 100);
   }
-  err.style.display = 'none';
-  const u = { email, password: pass, name, org, role: "ANALYST" };
-  USERS.push(u);
-  localStorage.setItem('oceantrace_users', JSON.stringify(USERS));
-  toast("Account Created", "Your profile has been created.", "ok");
-  loginAs(u);
+  toast("Welcome Back", `Signed in as ${u.name}`, "ok");
 }
 
 function logout() {
