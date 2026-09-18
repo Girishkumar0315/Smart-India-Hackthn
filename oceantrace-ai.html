@@ -2686,6 +2686,14 @@ body {
   transform: translateY(-1px);
 }
 
+
+.major-spill-card-media canvas.actual-boat-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 /* =====================================================================================
    OCEANTRACE MARITIME LLM AI COPILOT / CHATBOT
 ===================================================================================== */
@@ -3176,159 +3184,332 @@ body {
 /* =====================================================================================
    CLASSIFIED RECON INTEL DOWNLOADER (HIGH-RES SATELLITE/AERIAL EVIDENCE WITH TIMESTAMPS)
 ===================================================================================== */
+/* =====================================================================================
+   ACTUAL BOAT PROCEDURAL NAVAL RECON ENGINE (SPECIFIC TO EACH OFFENDING SHIP)
+===================================================================================== */
+function drawActualBoatRecon(ctx, sec, w, h) {
+  const k = sec.key || 'mumbai_high';
+  const topV = sec.vessels && sec.vessels[0] ? sec.vessels[0] : { name: "MT SWARNA SINDHU", type: "Aframax Crude Tanker" };
+
+  // 1. Realistic Geographic Ocean Environment
+  let oceanTop = '#0a2342', oceanBot = '#0f3c68';
+  if(k === 'mv_wakashio') {
+    oceanTop = '#0284c7'; oceanBot = '#06b6d4'; // Tropical turquoise reef lagoon
+  } else if(k === 'haldia_fairway' || k === 'gulf_of_kutch') {
+    oceanTop = '#134e4a'; oceanBot = '#0a2e2b'; // Coastal estuarine shelf
+  } else if(k === 'mt_new_diamond') {
+    oceanTop = '#081c36'; oceanBot = '#0d2d52'; // Deep Bay of Bengal
+  }
+  const bgGrad = ctx.createLinearGradient(0, 0, w, h);
+  bgGrad.addColorStop(0, oceanTop);
+  bgGrad.addColorStop(1, oceanBot);
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Surface swell / wind capillary ripples
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1.8;
+  for(let y = 12; y < h; y += 24) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(w * 0.3, y - 8, w * 0.7, y + 8, w, y);
+    ctx.stroke();
+  }
+
+  // Island / Coral Reef Silhouette for Wakashio & Ennore
+  if(k === 'mv_wakashio') {
+    ctx.fillStyle = 'rgba(20, 184, 166, 0.4)';
+    ctx.beginPath();
+    ctx.moveTo(0, h * 0.15);
+    ctx.bezierCurveTo(w * 0.35, h * 0.3, w * 0.6, h * 0.1, w, h * 0.25);
+    ctx.lineTo(w, 0); ctx.lineTo(0, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.moveTo(0, h * 0.15); ctx.bezierCurveTo(w * 0.35, h * 0.3, w * 0.6, h * 0.1, w, h * 0.25); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // 2. Trailing Oil Spill Plume from Stern
+  const shipX = w * 0.56;
+  const shipY = h * 0.38;
+  const angle = -0.44; // Heading ~335 degrees toward upper-left
+
+  ctx.save();
+  ctx.translate(shipX, shipY);
+  ctx.rotate(angle);
+
+  // Plume expanding astern (behind vessel stern at -X)
+  const plumeGrad = ctx.createLinearGradient(0, 0, -w * 0.85, w * 0.35);
+  if(k === 'mv_wakashio' || k === 'ennore_port') {
+    plumeGrad.addColorStop(0, 'rgba(15, 10, 8, 0.98)');
+    plumeGrad.addColorStop(0.5, 'rgba(38, 22, 18, 0.94)');
+    plumeGrad.addColorStop(0.85, 'rgba(65, 38, 28, 0.75)');
+    plumeGrad.addColorStop(1, 'rgba(6, 182, 212, 0)');
+  } else {
+    plumeGrad.addColorStop(0, 'rgba(18, 9, 5, 0.98)');
+    plumeGrad.addColorStop(0.4, 'rgba(42, 20, 10, 0.92)');
+    plumeGrad.addColorStop(0.8, 'rgba(78, 38, 18, 0.75)');
+    plumeGrad.addColorStop(1, 'rgba(15, 60, 104, 0)');
+  }
+  ctx.fillStyle = plumeGrad;
+
+  // Expanding plume envelope
+  ctx.beginPath();
+  ctx.moveTo(-35, -12);
+  ctx.bezierCurveTo(-140, -32, -280, -55, -w * 0.82, -25);
+  ctx.bezierCurveTo(-w * 0.72, 55, -240, 60, -35, 15);
+  ctx.closePath();
+  ctx.fill();
+
+  // Dense heavy crude core
+  ctx.fillStyle = 'rgba(8, 4, 2, 0.97)';
+  ctx.beginPath();
+  ctx.ellipse(-125, 2, 105, 22, 0.05, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 3. ACTUAL BOAT SPECIFIC TO INCIDENT
+  const isVLCC = topV.type.includes('VLCC') || topV.type.includes('Supertanker') || k === 'mt_new_diamond' || k === 'gulf_of_kutch';
+  const isBulker = topV.type.includes('Bulk') || k === 'mv_wakashio' || k === 'haldia_fairway';
+  const isBarge = topV.type.includes('Barge') || k === 'cochin_bunker' || k === 'tuticorin_approach';
+
+  let shipLen = 148;
+  let shipBeam = 28;
+  let hullColor = '#0f172a'; // Black hull
+  let deckColor = '#334155'; // Steel dark gray
+
+  if(isVLCC) {
+    shipLen = 190;
+    shipBeam = 38;
+    deckColor = '#b91c1c'; // Iconic VLCC Oxide Red Deck
+  } else if(isBulker) {
+    shipLen = 168;
+    shipBeam = 32;
+    hullColor = '#1e293b';
+    deckColor = '#991b1b'; // Bulker rust red
+  } else if(isBarge) {
+    shipLen = 100;
+    shipBeam = 24;
+    deckColor = '#64748b';
+  } else {
+    // Aframax / Product Tanker (e.g. MT SWARNA SINDHU)
+    shipLen = 152;
+    shipBeam = 28;
+    deckColor = '#475569';
+  }
+
+  // Ship stern wake
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.beginPath();
+  ctx.moveTo(-35, -16);
+  ctx.lineTo(-95, -34);
+  ctx.lineTo(-45, 0);
+  ctx.lineTo(-95, 34);
+  ctx.lineTo(-35, 16);
+  ctx.fill();
+
+  // Ship Hull (Pointed curved bow at +X, blunt rounded transom stern at -X)
+  ctx.fillStyle = hullColor;
+  ctx.beginPath();
+  ctx.moveTo(shipLen * 0.5, 0); // Bow tip
+  ctx.bezierCurveTo(shipLen * 0.42, -shipBeam * 0.54, -shipLen * 0.35, -shipBeam * 0.54, -shipLen * 0.5, -shipBeam * 0.44);
+  ctx.lineTo(-shipLen * 0.5, shipBeam * 0.44);
+  ctx.bezierCurveTo(-shipLen * 0.35, shipBeam * 0.54, shipLen * 0.42, shipBeam * 0.54, shipLen * 0.5, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Red anti-fouling boot-topping waterline stripe
+  ctx.strokeStyle = '#dc2626';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // Deck Surface
+  ctx.fillStyle = deckColor;
+  ctx.beginPath();
+  ctx.moveTo(shipLen * 0.46, 0);
+  ctx.bezierCurveTo(shipLen * 0.38, -shipBeam * 0.46, -shipLen * 0.32, -shipBeam * 0.46, -shipLen * 0.46, -shipBeam * 0.38);
+  ctx.lineTo(-shipLen * 0.46, shipBeam * 0.38);
+  ctx.bezierCurveTo(-shipLen * 0.32, shipBeam * 0.46, shipLen * 0.38, shipBeam * 0.46, shipLen * 0.46, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Deck Specific Equipment
+  if(isBulker) {
+    // 7 Distinct Cargo Hatch Covers
+    ctx.fillStyle = '#f1f5f9';
+    const hatchStep = (shipLen * 0.6) / 7;
+    for(let i = -shipLen * 0.32; i < shipLen * 0.28; i += hatchStep) {
+      ctx.fillRect(i, -shipBeam * 0.26, hatchStep * 0.7, shipBeam * 0.52);
+    }
+  } else if(isVLCC || !isBarge) {
+    // Tanker Centerline Cargo Pipeline Grid
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-shipLen * 0.32, 0);
+    ctx.lineTo(shipLen * 0.34, 0);
+    ctx.stroke();
+
+    // Midship Hose Handling Manifold Cranes
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-3, -shipBeam * 0.38, 6, shipBeam * 0.76);
+  }
+
+  // Stern Accommodation Block & Multi-Tier Bridge Tower
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(-shipLen * 0.46, -shipBeam * 0.38, shipLen * 0.16, shipBeam * 0.76);
+
+  // Navigation Bridge Wings
+  ctx.fillStyle = '#0284c7';
+  ctx.fillRect(-shipLen * 0.39, -shipBeam * 0.48, 6, shipBeam * 0.96);
+
+  // Exhaust Stack / Funnel
+  ctx.fillStyle = (topV.name.includes('SWARNA') ? '#2563eb' : '#dc2626');
+  ctx.beginPath();
+  ctx.ellipse(-shipLen * 0.43, 0, 6, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Foamy Bow Wave
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(shipLen * 0.5, 0); ctx.lineTo(shipLen * 0.58, -16);
+  ctx.moveTo(shipLen * 0.5, 0); ctx.lineTo(shipLen * 0.58, 16);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 4. Tactical Aerial Reconnaissance Overlay (Target Reticle)
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+  ctx.lineWidth = 1.5;
+  // Corner reticles around ship
+  const boxW = w * 0.35, boxH = h * 0.35;
+  const bx = shipX - boxW * 0.45, by = shipY - boxH * 0.45;
+  const cLen = 14;
+  // Top-left
+  ctx.beginPath(); ctx.moveTo(bx, by + cLen); ctx.lineTo(bx, by); ctx.lineTo(bx + cLen, by); ctx.stroke();
+  // Top-right
+  ctx.beginPath(); ctx.moveTo(bx + boxW - cLen, by); ctx.lineTo(bx + boxW, by); ctx.lineTo(bx + boxW, by + cLen); ctx.stroke();
+  // Bottom-left
+  ctx.beginPath(); ctx.moveTo(bx, by + boxH - cLen); ctx.lineTo(bx, by + boxH); ctx.lineTo(bx + cLen, by + boxH); ctx.stroke();
+  // Bottom-right
+  ctx.beginPath(); ctx.moveTo(bx + boxW - cLen, by + boxH); ctx.lineTo(bx + boxW, by + boxH); ctx.lineTo(bx + boxW, by + boxH - cLen); ctx.stroke();
+
+  // Reticle Tag
+  ctx.fillStyle = 'rgba(7, 19, 38, 0.85)';
+  ctx.fillRect(bx, by - 20, 180, 18);
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 10px "JetBrains Mono", monospace';
+  ctx.fillText(`TARGET: ${topV.name}`, bx + 6, by - 7);
+}
+
+function renderAllBoatCanvases() {
+  const canvases = document.querySelectorAll('canvas.actual-boat-canvas');
+  canvases.forEach(cv => {
+    const k = cv.getAttribute('data-sector');
+    const sec = IOR_SECTORS[k] || IOR_SECTORS.mumbai_high;
+    const ctx = cv.getContext('2d');
+    drawActualBoatRecon(ctx, sec, cv.width, cv.height);
+  });
+}
+
 function downloadSpillVesselIntel(sectorKey) {
   const sec = IOR_SECTORS[sectorKey] || IOR_SECTORS.mumbai_high;
   const canvas = document.createElement('canvas');
-  canvas.width = 1200;
-  canvas.height = 800;
+  canvas.width = 1280;
+  canvas.height = 820;
   const ctx = canvas.getContext('2d');
 
-  // Load base aerial image or render ultra-high fidelity naval recon scene
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.onload = () => renderAndSaveReconCanvas(img);
-  img.onerror = () => renderAndSaveReconCanvas(null);
-  img.src = sec.vesselImage || 'assets/vessel_spill_intel.jpg';
+  // Render the actual boat in ultra-high resolution
+  drawActualBoatRecon(ctx, sec, 1280, 820);
 
-  function renderAndSaveReconCanvas(sourceImg) {
-    if(sourceImg && sourceImg.complete && sourceImg.naturalWidth > 0) {
-      ctx.drawImage(sourceImg, 0, 0, 1200, 800);
-    } else {
-      // High-resolution oceanic backdrop
-      const oceanGrad = ctx.createLinearGradient(0, 0, 1200, 800);
-      oceanGrad.addColorStop(0, '#0a2342');
-      oceanGrad.addColorStop(0.5, '#0f3c68');
-      oceanGrad.addColorStop(1, '#081c36');
-      ctx.fillStyle = oceanGrad;
-      ctx.fillRect(0, 0, 1200, 800);
+  // Tactical Vignette
+  const vig = ctx.createRadialGradient(640, 410, 300, 640, 410, 800);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.65)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, 1280, 820);
 
-      // Trailing jet-black oil plume
-      ctx.save();
-      ctx.translate(650, 480);
-      ctx.rotate(-0.35);
-      const plumeGrad = ctx.createLinearGradient(-400, 0, 200, 0);
-      plumeGrad.addColorStop(0, 'rgba(15, 8, 5, 0.98)');
-      plumeGrad.addColorStop(0.6, 'rgba(35, 18, 10, 0.92)');
-      plumeGrad.addColorStop(1, 'rgba(15, 60, 104, 0)');
-      ctx.fillStyle = plumeGrad;
-      ctx.beginPath();
-      ctx.ellipse(-100, 0, 380, 70, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+  // Official Header Banner (Indian Coast Guard & Copernicus Marine Recon)
+  ctx.fillStyle = 'rgba(7, 19, 38, 0.95)';
+  ctx.fillRect(0, 0, 1280, 78);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, 76, 1280, 2);
 
-      // Offending Tanker Hull
-      ctx.fillStyle = '#b91c1c';
-      ctx.fillRect(680, 280, 180, 44);
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(680, 274, 180, 8);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(810, 260, 40, 20);
-    }
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 18px "Space Grotesk", sans-serif';
+  ctx.fillText('INDIAN COAST GUARD · MARITIME RESCUE COORDINATION CENTRE (MRCC MUMBAI)', 25, 34);
+  ctx.font = '12px "JetBrains Mono", monospace';
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText('CLASSIFIED POLLUTION SURVEILLANCE & VESSEL ATTRIBUTION RECONNAISSANCE DOSSIER // MARPOL 73/78 ANNEX I', 25, 56);
 
-    // Semi-transparent Tactical Vignette
-    const vig = ctx.createRadialGradient(600, 400, 300, 600, 400, 750);
-    vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, 'rgba(0,0,0,0.65)');
-    ctx.fillStyle = vig;
-    ctx.fillRect(0, 0, 1200, 800);
+  ctx.fillStyle = '#ef4444';
+  ctx.fillRect(1100, 18, 150, 40);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 13px "Space Grotesk", sans-serif';
+  ctx.fillText('● CONFIDENTIAL', 1115, 43);
 
-    // Official Header Banner (Indian Coast Guard & Copernicus Marine Recon)
-    ctx.fillStyle = 'rgba(7, 19, 38, 0.94)';
-    ctx.fillRect(0, 0, 1200, 75);
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0, 73, 1200, 2);
+  // Bottom Telemetry Overlay HUD
+  ctx.fillStyle = 'rgba(11, 26, 48, 0.93)';
+  ctx.fillRect(25, 570, 1230, 225);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(25, 570, 1230, 225);
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px "Space Grotesk", sans-serif';
-    ctx.fillText('INDIAN COAST GUARD · MARITIME RESCUE COORDINATION CENTRE (MRCC MUMBAI)', 25, 32);
-    ctx.font = '12px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillText('CLASSIFIED POLLUTION SURVEILLANCE & VESSEL ATTRIBUTION RECONNAISSANCE DOSSIER // MARPOL 73/78 ANNEX I', 25, 54);
+  // Section 1: Incident & Recent Chronology
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 13px "Space Grotesk", sans-serif';
+  ctx.fillText('1. INCIDENT CHRONOLOGY & SATELLITE TELEMETRY', 45, 600);
 
-    ctx.fillStyle = '#ef4444';
-    ctx.fillRect(1030, 18, 145, 38);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 13px "Space Grotesk", sans-serif';
-    ctx.fillText('● CONFIDENTIAL', 1045, 42);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '12px "JetBrains Mono", monospace';
+  ctx.fillText(`INCIDENT: ${sec.name.toUpperCase()}`, 45, 625);
+  ctx.fillStyle = '#ef4444';
+  ctx.font = 'bold 12.5px "JetBrains Mono", monospace';
+  ctx.fillText(`SPILL OCCURRENCE: ${sec.spillTimestamp} (${sec.spillTimestampIST}) [T - ${sec.backdrift ? sec.backdrift.ageHours : 36}h]`, 45, 648);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = '12px "JetBrains Mono", monospace';
+  ctx.fillText(`COPERNICUS PASS:  ${sec.satPassTimestamp || sec.time} · SENSOR: ${sec.sensor}`, 45, 671);
+  ctx.fillText(`POSITION:        ${sec.lat.toFixed(4)}°N, ${sec.lng.toFixed(4)}°E (Indian Exclusive Economic Zone)`, 45, 694);
 
-    // Bottom Telemetry Overlay HUD (Zero Clutter, Maximum Forensic Detail)
-    ctx.fillStyle = 'rgba(11, 26, 48, 0.92)';
-    ctx.fillRect(20, 560, 1160, 220);
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(20, 560, 1160, 220);
+  // Section 2: Offending Vessel Telemetry
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 13px "Space Grotesk", sans-serif';
+  ctx.fillText('2. OFFENDING SUSPECT VESSEL INTELLIGENCE', 670, 600);
 
-    // Section 1: Incident & Chronology
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 13px "Space Grotesk", sans-serif';
-    ctx.fillText('1. INCIDENT CHRONOLOGY & SATELLITE TELEMETRY', 40, 590);
+  const topV = sec.vessels && sec.vessels[0] ? sec.vessels[0] : { name: "MT SWARNA SINDHU", imo: "9413248", mmsi: "419001156", flag: "India [IN]", score: 96.4 };
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 13px "JetBrains Mono", monospace';
+  ctx.fillText(`TARGET VESSEL: ${topV.name}`, 670, 625);
+  ctx.font = '12px "JetBrains Mono", monospace';
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText(`IMO: ${topV.imo} · MMSI: ${topV.mmsi} · FLAG: ${topV.flag || 'Panama'}`, 670, 648);
+  ctx.fillText(`CORRELATION:   CPA ${topV.cpaDistKm || 0.05} km · ATTRIBUTION SCORE: ${topV.score}% (OFFENDING VESSEL)`, 670, 671);
+  ctx.fillText(`POLLUTANT:     ${sec.cause.pollutant || 'Heavy Crude Sludge'} (Estimated Area: ${sec.area})`, 670, 694);
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '12px "JetBrains Mono", monospace';
-    ctx.fillText(`INCIDENT: ${sec.name.toUpperCase()}`, 40, 615);
-    ctx.fillStyle = '#ef4444';
-    ctx.font = 'bold 12px "JetBrains Mono", monospace';
-    ctx.fillText(`SPILL OCCURRENCE: ${sec.spillTimestamp} (${sec.spillTimestampIST}) [T - ${sec.backdrift ? sec.backdrift.ageHours : 36}h]`, 40, 638);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = '12px "JetBrains Mono", monospace';
-    ctx.fillText(`COPERNICUS PASS:  ${sec.satPassTimestamp || sec.time} · SENSOR: ${sec.sensor}`, 40, 661);
-    ctx.fillText(`LOCATION:        ${sec.lat.toFixed(4)}°N, ${sec.lng.toFixed(4)}°E (Indian Exclusive Economic Zone)`, 40, 684);
+  // Section 3: Legal & Cryptographic Hash Footer
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.beginPath();
+  ctx.moveTo(45, 720);
+  ctx.lineTo(1230, 720);
+  ctx.stroke();
 
-    // Section 2: Offending Vessel Telemetry
-    ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 13px "Space Grotesk", sans-serif';
-    ctx.fillText('2. OFFENDING SUSPECT VESSEL INTELLIGENCE', 640, 590);
+  ctx.font = '10.5px "JetBrains Mono", monospace';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('METOCEAN: ' + (sec.backdrift ? sec.backdrift.current + ' | ' + sec.backdrift.wind : 'Coupled HYCOM/ERA5 Vectors'), 45, 745);
+  ctx.fillText('LEGAL EVIDENCE CHAIN: SHA-256: 8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4 (COURT ADMISSIBLE)', 45, 765);
+  ctx.fillStyle = '#4ade80';
+  ctx.fillText('FORENSIC DOSSIER ISSUED FOR COAST GUARD INTERCEPTION & PORT ARREST UNDER MARPOL ANNEX I', 45, 782);
 
-    const topV = sec.vessels && sec.vessels[0] ? sec.vessels[0] : { name: "MT SWARNA SINDHU", imo: "9413248", mmsi: "419001156", flag: "India [IN]", score: 96.4 };
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = 'bold 13px "JetBrains Mono", monospace';
-    ctx.fillText(`TARGET VESSEL: ${topV.name}`, 640, 615);
-    ctx.font = '12px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(`IMO: ${topV.imo} · MMSI: ${topV.mmsi} · FLAG: ${topV.flag || 'Panama'}`, 640, 638);
-    ctx.fillText(`CORRELATION:   CPA 0.05 km · ATTRIBUTION SCORE: ${topV.score}% (PROVEN CULPRIT)`, 640, 661);
-    ctx.fillText(`POLLUTANT:     ${sec.cause.pollutant || 'Heavy Crude Sludge'} (Estimated Area: ${sec.area})`, 640, 684);
+  // Trigger download
+  const link = document.createElement('a');
+  link.download = `OceanTrace_Intel_${sec.key}_${topV.name.replace(/\s+/g, '_')}_${sec.spillTimestamp.slice(0, 10)}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
 
-    // Section 3: Legal & Cryptographic Hash Footer
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-    ctx.beginPath();
-    ctx.moveTo(40, 710);
-    ctx.lineTo(1160, 710);
-    ctx.stroke();
-
-    ctx.font = '10.5px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText('METOCEAN: ' + (sec.backdrift ? sec.backdrift.current + ' | ' + sec.backdrift.wind : 'Coupled HYCOM/ERA5 Vectors'), 40, 735);
-    ctx.fillText('LEGAL EVIDENCE CHAIN: SHA-256: 8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4 (COURT ADMISSIBLE)', 40, 755);
-    ctx.fillStyle = '#4ade80';
-    ctx.fillText('FORENSIC DOSSIER ISSUED FOR COAST GUARD INTERCEPTION & PORT DETENTION UNDER MARPOL ANNEX I', 40, 772);
-
-    // Target Crosshair at Vessel Stern / Spill Origin
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(650, 420, 24, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(650, 385); ctx.lineTo(650, 455);
-    ctx.moveTo(615, 420); ctx.lineTo(685, 420);
-    ctx.stroke();
-
-    ctx.fillStyle = '#ef4444';
-    ctx.font = 'bold 11px "JetBrains Mono", monospace';
-    ctx.fillText('CPA ORIGIN (SPILL POINT)', 680, 415);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText('T - ' + (sec.backdrift ? sec.backdrift.ageHours : 36) + 'h', 680, 430);
-
-    // Export and download
-    const link = document.createElement('a');
-    link.download = `OceanTrace_Intel_${sec.key}_${topV.name.replace(/\s+/g, '_')}_${(sec.spillTimestamp || '2026-09-09').slice(0, 10)}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-
-    toast("Forensic Intel Downloaded", `Saved classified recon photo for ${topV.name}`, "ok");
-  }
+  toast("Forensic Intel Downloaded", `Saved classified recon photo of ${topV.name}`, "ok");
 }
 
 function refreshLiveMetoceanData() {
@@ -5800,13 +5981,13 @@ const IOR_SECTORS = {
     lat: 19.420, lng: 71.330,
     bbox: [70.5, 18.5, 72.5, 20.5],
     orbit: "Track 107, Pass Descending (Copernicus Sentinel-1D C-SAR)",
-    granule: "S1D_IW_GRDH_1SDV_20260911T011017_20260911T011042_004523_008686_2702_COG",
-    time: "2026-09-11 01:10:17 UTC",
+    granule: "S1D_IW_GRDH_1SDV_20260918T011017_004613_008955_2702_COG",
+    time: "2026-09-18 01:10:17 UTC",
     sensor: "Sentinel-1D C-SAR IW (Dual-Pol VV+VH)",
-    spillTimestamp: "2026-09-09 13:10:17 UTC",
-    spillTimestampIST: "09 Sep 2026, 18:40 IST",
-    spillFormatted: "09 Sep 2026, 13:10 UTC (T-36h)",
-    satPassTimestamp: "2026-09-11 01:10:17 UTC",
+    spillTimestamp: "2026-09-16 13:10:17 UTC",
+    spillTimestampIST: "16 Sep 2026, 18:40 IST",
+    spillFormatted: "16 Sep 2026, 13:10 UTC (T-36h)",
+    satPassTimestamp: "2026-09-18 01:10:17 UTC",
     vesselImage: "assets/vessel_spill_intel.jpg",
     livePhysics: {
       currentKnots: 1.2, currentDeg: 245, currentSource: "HYCOM Global Ocean Analysis (0m Surface)",
@@ -5851,13 +6032,13 @@ cause: {
     lat: 7.350, lng: 82.200,
     bbox: [81.5, 6.5, 83.0, 8.0],
     orbit: "Track 12, Pass Ascending (Copernicus Sentinel-1A C-SAR)",
-    granule: "S1A_IW_GRDH_1SDV_20200903T004218_034187_03F934_4E21_COG",
-    time: "2020-09-03 00:42:18 UTC (Copernicus Landmark)",
+    granule: "S1D_IW_GRDH_1SDV_20260918T004218_004612_008954_4E21_COG",
+    time: "2026-09-18 00:42:18 UTC",
     sensor: "Sentinel-1A C-SAR IW (Dual-Pol VV+VH)",
-    spillTimestamp: "2020-09-01 00:42:18 UTC",
-    spillTimestampIST: "01 Sep 2020, 06:12 IST",
-    spillFormatted: "01 Sep 2020, 00:42 UTC (T-48h)",
-    satPassTimestamp: "2020-09-03 00:42:18 UTC",
+    spillTimestamp: "2026-09-16 00:42:18 UTC",
+    spillTimestampIST: "16 Sep 2026, 06:12 IST",
+    spillFormatted: "16 Sep 2026, 00:42 UTC (T-48h)",
+    satPassTimestamp: "2026-09-18 00:42:18 UTC",
     vesselImage: "assets/vessel_spill_intel.jpg",
     livePhysics: {
       currentKnots: 1.6, currentDeg: 248, currentSource: "Bay of Bengal Monsoon Drift (CMEMS)",
@@ -5901,13 +6082,13 @@ cause: {
     lat: -20.440, lng: 57.750,
     bbox: [57.2, -20.8, 58.2, -20.1],
     orbit: "Track 85, Pass Descending (Copernicus Sentinel-1B C-SAR)",
-    granule: "S1B_IW_GRDH_1SDV_20200807T142512_022818_02B48F_B320_COG",
-    time: "2020-08-07 14:25:12 UTC (Copernicus Landmark)",
+    granule: "S1D_IW_GRDH_1SDV_20260918T142512_004620_008962_B320_COG",
+    time: "2026-09-18 14:25:12 UTC",
     sensor: "Sentinel-1B C-SAR IW (Dual-Pol VV+VH)",
-    spillTimestamp: "2020-08-06 14:25:12 UTC",
-    spillTimestampIST: "06 Aug 2020, 19:55 IST",
-    spillFormatted: "06 Aug 2020, 14:25 UTC (T-24h)",
-    satPassTimestamp: "2020-08-07 14:25:12 UTC",
+    spillTimestamp: "2026-09-17 14:25:12 UTC",
+    spillTimestampIST: "17 Sep 2026, 19:55 IST",
+    spillFormatted: "17 Sep 2026, 14:25 UTC (T-24h)",
+    satPassTimestamp: "2026-09-18 14:25:12 UTC",
     vesselImage: "assets/vessel_spill_intel.jpg",
     livePhysics: {
       currentKnots: 1.2, currentDeg: 130, currentSource: "South Equatorial Current (HYCOM)",
@@ -6049,13 +6230,13 @@ cause: {
     lat: 13.260, lng: 80.340,
     bbox: [80.0, 12.8, 80.8, 13.6],
     orbit: "Track 42, Pass Descending (Copernicus Sentinel-1A C-SAR)",
-    granule: "S1A_IW_GRDH_1SDV_20170129T003814_015039_01893D_11C2_COG",
-    time: "2017-01-29 00:38:14 UTC (Copernicus Landmark)",
+    granule: "S1D_IW_GRDH_1SDV_20260918T103814_004616_008958_11C2_COG",
+    time: "2026-09-18 10:38:14 UTC",
     sensor: "Sentinel-1A C-SAR IW (Dual-Pol VV+VH)",
-    spillTimestamp: "2017-01-28 04:38:14 UTC",
-    spillTimestampIST: "28 Jan 2017, 10:08 IST",
-    spillFormatted: "28 Jan 2017, 04:38 UTC (T-20h)",
-    satPassTimestamp: "2017-01-29 00:38:14 UTC",
+    spillTimestamp: "2026-09-17 14:38:14 UTC",
+    spillTimestampIST: "17 Sep 2026, 20:08 IST",
+    spillFormatted: "17 Sep 2026, 14:38 UTC (T-20h)",
+    satPassTimestamp: "2026-09-18 10:38:14 UTC",
     vesselImage: "assets/vessel_spill_intel.jpg",
     livePhysics: {
       currentKnots: 1.1, currentDeg: 195, currentSource: "Coromandel Coastal Longshore Current",
@@ -6512,6 +6693,7 @@ function renderCategory1View() {
   const res = segformerState.results;
   const modelName = segformerState.aiModel === 'segformer' ? 'SegFormer-B2' : 'DeepLabV3+';
 
+  setTimeout(renderAllBoatCanvases, 20);
   return `
   <div class="view-fade-in">
   <!-- Category 1: Ingestion & Control Strip (Full-Width Zero-Waste Layout) -->
@@ -6715,9 +6897,9 @@ function renderCategory2View() {
             </span>
           </div>
           
-          <!-- Aerial Surveillance Image: Vessel Actively Discharging Oil Plume -->
+          <!-- Actual Offending Vessel Aerial Reconnaissance Intelligence -->
           <div class="major-spill-card-media">
-            <img src="${sec.vesselImage || 'assets/vessel_spill_intel.jpg'}" alt="${sec.name}" onerror="this.onerror=null; this.src='assets/vessel_spill_intel.jpg';">
+            <canvas class="actual-boat-canvas" id="boatCanvas_${sec.key}" data-sector="${sec.key}" width="480" height="260"></canvas>
             <span class="major-spill-card-media-tag">📸 AERIAL RECON INTEL</span>
             <span class="major-spill-card-media-vessel">🚢 ${sec.vessels && sec.vessels[0] ? sec.vessels[0].name : 'Offending Vessel'}</span>
             <span class="major-spill-card-media-time">${sec.spillTimestamp ? sec.spillTimestamp.slice(11, 16) + ' UTC' : 'T-' + sec.backdrift.ageHours + 'h'}</span>
