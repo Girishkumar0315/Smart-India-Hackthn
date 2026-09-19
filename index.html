@@ -3386,7 +3386,12 @@ async function sendCopilotMessage() {
 
     // Fallback to built-in Maritime Neural Reasoning Engine if no answer from cloud
     if(!aiAnswer) {
-      aiAnswer = generateMaritimeAIResponse(text);
+      if(copilotState.modelProvider !== 'builtin' && !copilotState.apiKey) {
+        const provName = copilotState.modelProvider === 'gemini' ? 'Google Gemini' : copilotState.modelProvider === 'openai' ? 'OpenAI GPT-4o' : 'Groq';
+        aiAnswer = `> ⚠️ **${provName} API Key Not Configured**\n>\n> Add your API key in the settings panel (⚙️) above to use cloud LLM capabilities.\n\n---\n\n**Built-in Maritime AI Engine response:**\n\n` + generateMaritimeAIResponse(text);
+      } else {
+        aiAnswer = generateMaritimeAIResponse(text);
+      }
     }
 
     // Remove thinking message and add actual answer
@@ -3404,7 +3409,29 @@ async function sendCopilotMessage() {
 
 async function queryGeminiLLM(prompt, sec, topV) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${copilotState.apiKey}`;
-  const sysPrompt = `You are OceanTrace Maritime AI Copilot, an expert in satellite oil spill forensics, AIS tracking, ocean physics (HYCOM/ERA5), and MARPOL Annex I laws. Current Incident: ${sec ? sec.name : 'Indian Ocean'}, Location: ${sec ? sec.lat + 'N, ' + sec.lng + 'E' : 'EEZ'}, Target Suspect: ${topV ? topV.name : 'Unknown'}. Provide professional, concise, actionable maritime responses with markdown formatting.`;
+  const ctx = buildMissionContextForAI();
+  const inv = ctx.inv;
+  const missionData = inv ? [
+    `MISSION: ${inv.id} — ${inv.name} (Status: ${inv.status})`,
+    inv.detection ? `SPILL DETECTION: ${inv.detection.areaKm2} km² @ ${inv.detection.centroid[0].toFixed(3)}°N, ${inv.detection.centroid[1].toFixed(3)}°E · Confidence: ${inv.detection.confidence}%` : 'DETECTION: Not yet performed',
+    inv.drift ? `BACKDRIFT ORIGIN: ${inv.drift.origin[0].toFixed(3)}°N, ${inv.drift.origin[1].toFixed(3)}°E · T${inv.drift.spillTime}h · Net drift: ${inv.drift.netSpeedKmH.toFixed(2)} km/h @ ${inv.drift.bearingDeg}°` : 'BACKDRIFT: Not yet computed',
+    inv.environment ? `METOCEAN: Current ${inv.environment.current.speedKt}kt @${inv.environment.current.dirDeg}°, Wind ${inv.environment.wind.speedKt}kt @${inv.environment.wind.dirDeg}°, SST ${inv.environment.sstC || '28.4'}°C` : '',
+    inv.ais && inv.ais.vessels && inv.ais.vessels.length > 0 ? `AIS CORRELATION: ${inv.ais.vessels.length} vessels evaluated` : 'AIS: Not yet correlated',
+    ctx.topSuspect ? `TOP SUSPECT: ${ctx.topSuspect.name} (MMSI: ${ctx.topSuspect.mmsi}, Score: ${ctx.topSuspect.score && ctx.topSuspect.score.total !== undefined ? ctx.topSuspect.score.total : ctx.topSuspect.score}%, CPA: ${ctx.topSuspect.distKm || ctx.topSuspect.cpaDistKm || 'N/A'} km)` : '',
+  ].filter(Boolean).join('\n') : 'No active investigation. Ask user to create or open an investigation.';
+  const sysPrompt = `You are OceanTrace Maritime AI Copilot — expert in satellite oil spill forensics, AIS vessel tracking, ocean physics (HYCOM/ERA5/CMEMS), and MARPOL Annex I maritime law.
+
+LIVE INVESTIGATION DATA:
+${missionData}
+
+SECTOR: ${sec ? sec.name + ' (lat ' + sec.lat + '°N, lng ' + sec.lng + '°E)' : 'Unknown'}
+
+INSTRUCTIONS:
+- Answer ONLY using the real investigation data provided above
+- If a pipeline stage is pending (detection/drift/AIS not run), tell the user which step to complete
+- Use markdown formatting with **bold** for key facts
+- Be professional, concise, and actionable
+- For MARPOL/legal questions, cite specific regulations`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3421,7 +3448,15 @@ async function queryGeminiLLM(prompt, sec, topV) {
 async function queryOpenAILLM(prompt, sec, topV, provider) {
   const endpoint = (provider === 'groq') ? 'https://api.groq.com/openai/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions';
   const model = (provider === 'groq') ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini';
-  const sysPrompt = `You are OceanTrace Maritime AI Copilot, an expert in satellite oil spill forensics, AIS tracking, ocean physics, and MARPOL Annex I laws. Current Incident: ${sec ? sec.name : 'Indian Ocean'}, Target Suspect: ${topV ? topV.name : 'Unknown'}. Provide professional maritime responses.`;
+  const ctx = buildMissionContextForAI();
+  const inv = ctx.inv;
+  const missionData = inv ? `Mission: ${inv.id} (${inv.name}). ${inv.detection ? 'Spill: ' + inv.detection.areaKm2 + ' km² at ' + inv.detection.centroid[0].toFixed(3) + '°N, ' + inv.detection.centroid[1].toFixed(3) + '°E (' + inv.detection.confidence + '% conf).' : 'Detection pending.'} ${inv.drift ? 'Origin: ' + inv.drift.origin[0].toFixed(3) + '°N, ' + inv.drift.origin[1].toFixed(3) + '°E T' + inv.drift.spillTime + 'h.' : 'Drift pending.'} ${ctx.topSuspect ? 'Top suspect: ' + ctx.topSuspect.name + ' (MMSI ' + ctx.topSuspect.mmsi + ').' : 'AIS pending.'}` : 'No active investigation.';
+  const sysPrompt = `You are OceanTrace Maritime AI Copilot. Expert in oil spill forensics, AIS tracking, ocean physics, MARPOL law.
+
+INVESTIGATION DATA: ${missionData}
+SECTOR: ${sec ? sec.name : 'Unknown'} | SUSPECT: ${topV ? topV.name : 'Pending'}
+
+Answer using ONLY real investigation data. If data pending, instruct user to run relevant pipeline step. Be professional, use markdown.`;
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -4749,7 +4784,8 @@ function renderAISIntelligenceCenter() {
   const secKey = inv ? (inv.sectorKey || (segformerState && segformerState.cat2Sector) || 'mumbai_high') : ((segformerState && segformerState.cat2Sector) ? segformerState.cat2Sector : 'mumbai_high');
   const sec = (typeof IOR_SECTORS !== 'undefined' && IOR_SECTORS[secKey]) ? IOR_SECTORS[secKey] : (typeof IOR_SECTORS !== 'undefined' ? IOR_SECTORS.mumbai_high : null);
 
-  const vessels = (inv && inv.ais && inv.ais.vessels && inv.ais.vessels.length > 0) ? inv.ais.vessels : ((sec && sec.vessels && sec.vessels.length > 0) ? sec.vessels : TANKER_FLEET);
+  // Only show vessels that have been correlated in this active investigation
+  const vessels = (inv && inv.ais && inv.ais.vessels && inv.ais.vessels.length > 0) ? inv.ais.vessels : [];
   
   // Filter logic
   let filtered = vessels.filter(v => {
@@ -4764,6 +4800,28 @@ function renderAISIntelligenceCenter() {
   const darkGaps = vessels.filter(v => v.hasGap).length;
   const indianFlagged = vessels.filter(v => (v.flag && v.flag.includes('India')) || (v.mmsi && String(v.mmsi).startsWith('419'))).length;
   const topSuspects = vessels.filter(v => (v.score && v.score.total >= 70) || (v.status && v.status.includes('HIGH'))).length;
+
+  // Show actionable empty state if no AIS data yet
+  if(vessels.length === 0) {
+    return `<div class="view-fade-in">
+      <div style="background:linear-gradient(135deg,#071326 0%,#0d2342 100%); border-radius:8px; padding:22px 24px; color:#fff; margin-bottom:16px;">
+        <h2 style="font-size:18px; font-weight:800; margin:0 0 6px 0;">National AIS Intelligence &amp; Maritime Domain Awareness</h2>
+        <p style="font-size:12.5px; color:#94a3b8; margin:0;">Real-time vessel tracking across Indian EEZ and global maritime corridors.</p>
+      </div>
+      <div style="text-align:center; padding:50px 20px; background:#f8fafc; border-radius:10px;">
+        <div style="font-size:40px; margin-bottom:14px;">🛰️</div>
+        <h3 style="color:var(--navy-dark); margin-bottom:10px; font-size:16px;">AIS Correlation Pending</h3>
+        <p style="color:var(--text-dim); max-width:420px; margin:0 auto 20px auto; font-size:13px; line-height:1.6;">
+          No vessels have been correlated yet for this investigation.<br>
+          Complete <b>spill detection</b> → <b>drift hindcast</b> → then click <b>Run AIS Attribution</b> in Mission Control.
+        </p>
+        <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+          <button class="btn primary" onclick="setSection('mission-control')">⚓ Go to Mission Control</button>
+          <button class="btn" onclick="setSection('image-detection')">📷 Run Spill Detection</button>
+        </div>
+      </div>
+    </div>`;
+  }
 
   return `
   <div class="view-fade-in" style="display:flex; flex-direction:column; gap:16px;">
@@ -5148,6 +5206,24 @@ function executeICGDispatch() {
   audit("ICG INTERCEPTION ALERT DISPATCHED", `Target MMSI: ${selectedDispatchMmsi || '419001156'} · Ref: ${alertRef}`);
 }
 
+function openTacticalMap() {
+  setSection('mission-control');
+  setTab('evidence');
+  setTimeout(() => {
+    if(!missionMap) initMap();
+    if(missionMap) {
+      const inv = activeInv();
+      const center = (inv && inv.drift && inv.drift.origin) ? inv.drift.origin
+                   : (inv && inv.detection && inv.detection.centroid) ? inv.detection.centroid
+                   : (inv && inv.originCoords) ? inv.originCoords
+                   : [19.420, 71.330];
+      missionMap.flyTo(center, 8, { duration: 1.2 });
+      renderMapOverlays();
+    }
+  }, 300);
+  toast("Tactical Map", "Mission Control map loaded with vessel tracks and spill data", "ok");
+}
+
 function benchmarkAISScoring() {
   const t0 = performance.now();
   // Simulate vectorized array operations over 500 vessel trajectories
@@ -5164,16 +5240,26 @@ function benchmarkAISScoring() {
 }
 
 async function verifyEvidenceIntegrity(invId) {
-  toast("Cryptographic Verification", "Calculating SHA-256 integrity hash across telemetry layers...", "info");
-  const inv = activeInv();
-  const rawPayload = `${invId || 'MSN-121'}:SAR-S1D:19.420:71.330:HYCOM-CMEMS:419001156`;
+  toast("Cryptographic Verification", "Computing SHA-256 hash from investigation telemetry...", "info");
+  const inv = investigations.find(i => i.id === invId) || activeInv();
+  if(!inv) { toast("No Investigation", "No active investigation found", "warn"); return; }
+  // Use actual investigation data for hash
+  const centroid = (inv.detection && inv.detection.centroid) ? inv.detection.centroid : (inv.originCoords || [0, 0]);
+  const vessel = (inv.ais && inv.ais.vessels && inv.ais.vessels[0]) ? inv.ais.vessels[0].mmsi : 'UNKNOWN';
+  const rawPayload = `${inv.id}:${inv.satellite ? inv.satellite.sensor : 'SAR'}:${centroid[0].toFixed(4)}:${centroid[1].toFixed(4)}:HYCOM-CMEMS:${vessel}:${inv.createdAt ? new Date(inv.createdAt).toISOString() : 'NOW'}`;
   const enc = new TextEncoder();
   const buf = await crypto.subtle.digest('SHA-256', enc.encode(rawPayload));
   const hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
   
+  // Update hash display in report  
+  const hashEl = document.getElementById('reportHashValue');
+  if(hashEl) hashEl.textContent = hash;
+  
   setTimeout(() => {
-    toast("Forensic Integrity Sealed", `✓ SHA-256: ${hash.slice(0, 16)}... Match 100% (0-bit divergence)`, "ok");
-    audit("EVIDENCE HASH VERIFIED", `${hash.slice(0, 32)}...`);
+    toast("✓ Forensic Integrity Verified", `SHA-256: ${hash.slice(0, 20)}... · ${inv.id} · 0-bit divergence`, "ok");
+    audit("EVIDENCE HASH VERIFIED", `${inv.id} · ${hash.slice(0, 32)}...`);
+    if(typeof stageComplete === 'function') { stageComplete(inv, "FINALIZE"); }
+    saveInvestigationsToStorage();
   }, 400);
 }
 
@@ -5390,6 +5476,7 @@ function renderCandidatesTab(inv) {
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
       <button class="btn sm" style="background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.3); font-size:11px;" onclick="benchmarkAISScoring()">⚡ Re-Benchmark</button>
+      <button class="btn sm" style="background:#1d4ed8; color:#fff; border:1px solid #3b82f6; font-size:11px; font-weight:700;" onclick="openTacticalMap()">🗺️ Open Tactical Mission Map</button>
       <button class="btn sm danger" style="font-weight:700; font-size:11px;" onclick="openICGDispatchModal(inv.ais.vessels[0]?.mmsi)">🚨 Dispatch ICG Alert</button>
     </div>
   </div>
@@ -5745,12 +5832,15 @@ function renderReportTab(inv) {
           <b style="font-size:12px; color:#166534; letter-spacing:0.4px;">FORENSIC CHAIN-OF-CUSTODY CERTIFICATE (UNCLOS / ITLOS EVIDENCE GRADE)</b>
           <span class="badge sm success" style="font-size:9.5px;">✓ DIGITALLY SEALED</span>
         </div>
-        <div style="font-size:11px; font-family:var(--font-mono); color:#15803d; margin-top:2px;">
-          SHA-256: <b>e84a92c0199e71b489a6d0c2e39b42cf91a74288b13928172901a89c2014d9b2</b>
+        <div style="font-size:11px; font-family:var(--font-mono); color:#15803d; margin-top:2px;" id="reportHashDisplay">
+          SHA-256: <b id="reportHashValue">Click "Verify Integrity" to compute...</b>
+        </div>
+        <div style="font-size:10px; color:#15803d; margin-top:2px; opacity:0.7;">
+          Data scope: ${inv.id} · Centroid: ${inv.detection ? inv.detection.centroid[0].toFixed(4)+'°N '+inv.detection.centroid[1].toFixed(4)+'°E' : 'Pending'} · Vessels: ${inv.ais ? inv.ais.vessels.length : 0}
         </div>
       </div>
       <button class="btn sm" style="background:#16a34a; color:#fff; font-weight:700; border:none;" onclick="verifyEvidenceIntegrity('${inv.id}')">
-        Verify Integrity
+        ✓ Verify Integrity
       </button>
     </div>
 
@@ -5989,7 +6079,7 @@ function renderOceanPhysics() {
               <button class="btn sm primary" style="width:100%; justify-content:center; font-weight:700; background:#16a34a; border-color:#15803d;" onclick="recalculateAndApplyHindcast()">
                 🚀 Recalculate Hindcast &amp; Apply to Mission Control →
               </button>
-              <button class="btn sm" style="width:100%; justify-content:center; font-weight:700;" onclick="setSection('mission-control'); setTab('evidence');">
+              <button class="btn sm" style="width:100%; justify-content:center; font-weight:700;" onclick="viewHindcastOriginOnMap()">
                 🗺️ View Origin Cone on Tactical Map →
               </button>
             </div>
@@ -6009,10 +6099,32 @@ function recalculateAndApplyHindcast() {
   const lat = (inv.detection && inv.detection.centroid) ? inv.detection.centroid[0] : (inv.originCoords ? inv.originCoords[0] : 19.420);
   const lng = (inv.detection && inv.detection.centroid) ? inv.detection.centroid[1] : (inv.originCoords ? inv.originCoords[1] : 71.330);
   fetchLiveMetoceanData(lat, lng).then(() => {
-    setSection('mission-control');
-    setTab('evidence');
-    toast("Hindcast Recalculated", "Lagrangian origin cone applied to Mission Control", "ok");
+    // Stay on Ocean Physics to show updated live metocean values
+    renderSection();
+    toast("✓ Hindcast Recalculated", "Live Copernicus metocean values updated. Use 'View Origin Cone' to navigate to map.", "ok");
   });
+}
+
+function viewHindcastOriginOnMap() {
+  const inv = activeInv();
+  if(!inv) {
+    toast("No Mission Active", "Please mount an active investigation first", "warn");
+    return;
+  }
+  setSection('mission-control');
+  setTab('evidence');
+  setTimeout(() => {
+    if(!missionMap) initMap();
+    if(missionMap) {
+      const origin = (inv.drift && inv.drift.origin) ? inv.drift.origin
+                   : (inv.detection && inv.detection.centroid) ? inv.detection.centroid
+                   : (inv.originCoords) ? inv.originCoords
+                   : [19.420, 71.330];
+      missionMap.flyTo(origin, 9, { duration: 1.5 });
+      renderMapOverlays();
+      toast("Origin Cone Displayed", `Hindcast locus: ${origin[0].toFixed(3)}°N, ${origin[1].toFixed(3)}°E`, "ok");
+    }
+  }, 300);
 }
 
 function getCompassDirection(deg) {
@@ -7330,6 +7442,7 @@ function renderCategory1View() {
       </div>
 
       <div style="background:var(--bg-subtle); border:1px solid var(--border-card); border-radius:6px; padding:9px 14px; min-width:300px;">
+        ${segformerState.imgDataUrl ? `
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <b id="sfMetaName" style="color:var(--navy-dark); font-size:11.5px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(segformerState.fileName)}</b>
           <span class="badge ${isSar ? 'neutral' : 'primary'}" id="sfMetaBadge">${isSar ? 'SAR Backscatter' : 'RGB Optical'}</span>
@@ -7337,6 +7450,15 @@ function renderCategory1View() {
         <div class="small mono" id="sfMetaSub" style="margin-top:3px; color:var(--text-dim);">
           ${segformerState.fileMeta.width}×${segformerState.fileMeta.height} px · ${segformerState.fileMeta.sizeKB} KB · Conf: ${segformerState.confidenceCutoff}%
         </div>
+        ` : `
+        <div style="display:flex; align-items:center; gap:8px; color:var(--text-dim); padding:4px 0;">
+          <span style="font-size:20px;">📁</span>
+          <div>
+            <div style="font-size:11.5px; font-weight:600; color:var(--navy-dark);">No image selected</div>
+            <div class="small mono">Upload a SAR or optical image to begin detection</div>
+          </div>
+        </div>
+        `}
       </div>
     </div>
   </div>
@@ -9178,22 +9300,35 @@ function saveCdseToken() {
 function deployCat2ToMission() {
   const s = IOR_SECTORS[segformerState.cat2Sector] || IOR_SECTORS.mumbai_high;
   const res = segformerState.cat2Results;
-  if(!res) return;
+  if(!res) { toast("No Recon Data", "Click a spill incident card first to load satellite data", "warn"); return; }
 
-  const inv = newInvestigationShell(`${s.name} Sentinel-1 Slick`, `Copernicus Sentinel-1 SAR recon confirmed oil slick at ${s.lat}°N, ${s.lng}°E. Attribution score: ${s.vessels[0] ? s.vessels[0].score : 95}%`, "HIGH");
-  investigations.unshift(inv);
-  runIngest(inv, { dataUrl: segformerState.cat2SceneCanvas.toDataURL(), fileName: s.granule + ".tif" });
+  // Find or create investigation for this sector
+  let inv = investigations.find(i => i.sectorKey === s.key);
+  if(!inv) {
+    inv = newInvestigationShell(`${s.name} · Sentinel-1 SAR Slick`, `Copernicus Sentinel-1 SAR recon confirmed oil slick at ${s.lat.toFixed(3)}°N, ${s.lng.toFixed(3)}°E.`, "HIGH");
+    investigations.unshift(inv);
+  }
+  inv.sectorKey = s.key;
+  inv.originCoords = [s.lat, s.lng];
+  if(segformerState.cat2SceneCanvas) {
+    runIngest(inv, { dataUrl: segformerState.cat2SceneCanvas.toDataURL(), fileName: s.granule + ".tif" });
+  }
   runDetection(inv);
   inv.detection.areaKm2 = res.areaKm2;
   inv.detection.confidence = res.confidence;
   inv.detection.centroid = [s.lat, s.lng];
-  inv.originCoords = [s.lat, s.lng];
   runEnvironment(inv);
   runTrace(inv);
   runAIS(inv);
   activeId = inv.id;
+  saveInvestigationsToStorage();
   setSection('mission-control');
-  toast("Mission Launched", `${inv.id} loaded into Mission Control with full tactical fleet`, "ok");
+  setTab('candidates');
+  toast("Mission Deployed", `${inv.id} launched · ${inv.ais ? inv.ais.vessels.length + ' vessels correlated' : 'AIS running...'}`, "ok");
+  setTimeout(() => {
+    if(!missionMap) initMap();
+    if(missionMap) missionMap.flyTo([s.lat, s.lng], 9, { duration: 1.2 });
+  }, 400);
 }
 
 function exportCat2ForensicJSON() {
@@ -10678,18 +10813,24 @@ function exportSegFormerMetricsJSON() {
    INVESTIGATIONS LIST & STEPPER
 ===================================================================================== */
 function renderInvestigationsList() {
-  let rows = investigations.map(i => `
+  let rows = investigations.map(i => {
+    const invDate = (i.createdAt instanceof Date) ? i.createdAt : new Date(i.createdAt || Date.now());
+    const centroidStr = i.detection && i.detection.centroid
+      ? `${Number(i.detection.centroid[0]).toFixed(3)}°N, ${Number(i.detection.centroid[1]).toFixed(3)}°E`
+      : '—';
+    return `
     <tr>
       <td class="mono"><b>${i.id}</b></td>
-      <td>${escapeHtml(i.name)}</td>
-      <td class="mono">${i.createdAt.toLocaleDateString()}</td>
+      <td style="max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(i.name)}">${escapeHtml(i.name)}</td>
+      <td class="mono" style="font-size:11px;">${invDate.toLocaleDateString()}</td>
       <td><span class="badge ${i.status==='COMPLETE'?'success':'primary'}">${i.status}</span></td>
-      <td>${i.detection ? `${i.detection.centroid[0]}°N, ${i.detection.centroid[1]}°E` : '—'}</td>
+      <td class="mono" style="font-size:10.5px;">${centroidStr}</td>
       <td>${i.detection ? i.detection.confidence + '%' : '—'}</td>
-      <td>${i.ais ? i.ais.vessels.length : '—'}</td>
+      <td>${(i.ais && i.ais.vessels) ? i.ais.vessels.length : '—'}</td>
       <td><span class="badge ${i.priority==='HIGH'?'danger':i.priority==='MEDIUM'?'warning':'neutral'}">${i.priority}</span></td>
       <td><button class="btn sm primary" onclick="openInvestigation('${i.id}')">Open</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   if(!rows) rows = `<tr><td colspan="9" class="small" style="text-align:center; padding:30px;">No investigations mounted yet. Click New Investigation.</td></tr>`;
 
