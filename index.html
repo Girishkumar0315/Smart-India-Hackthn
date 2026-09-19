@@ -4309,6 +4309,197 @@ const TANKER_FLEET = [
   }
 ];
 
+/* =====================================================================================
+   MARITIME ROUTING HELPERS — Realistic Vessel Track Generation
+   Produces geographically plausible routes along actual ocean shipping lanes
+   instead of straight lines on constant bearing.
+==================================================================================== */
+
+/**
+ * Returns a list of lat/lng waypoints defining the shipping lane for this sector.
+ * Each sector has its own set of turn points derived from real SLOC corridors.
+ */
+function getShippingLaneWaypoints(sec, origin, cpaPoint, fairwayHeading) {
+  const secKey = sec ? sec.key : 'mumbai_high';
+  
+  // Sector-specific realistic shipping lane anchor waypoints
+  // These define the main shipping corridors, not arbitrary straight lines
+  const LANE_TEMPLATES = {
+    // Mumbai High → Basra / Ras Tanura route through Gulf of Oman
+    mumbai_high: [
+      [23.5, 63.5],  // Gulf of Oman egress
+      [22.3, 65.8],  // Mid-Arabian Sea north
+      [20.8, 68.4],  // Approaching Gujarat coast
+      [19.8, 70.2],  // NW Arabian Sea approach
+      [19.4, 71.3],  // Spill locus / Mumbai High oil fields
+      [18.9, 72.1],  // Mumbai anchorage approach
+      [18.5, 73.8],  // Further SE track
+    ],
+    // Sri Lanka / Bay of Bengal MT New Diamond VLCC route
+    mt_new_diamond: [
+      [6.5, 80.0],   // SW Sri Lanka
+      [7.2, 81.5],   // Colombo VTS
+      [7.4, 82.2],   // Incident zone
+      [8.0, 83.5],   // NE Sri Lanka
+      [10.5, 86.0],  // Bay of Bengal transit
+    ],
+    // Gulf of Kutch / Vadinar SPM terminal route
+    vadinar_spm: [
+      [24.0, 66.5],  // Gulf of Oman egress
+      [23.5, 67.8],  // Approach
+      [22.8, 68.5],  // Gulf of Kutch entrance
+      [22.5, 69.0],  // Vadinar SPM approach
+      [22.4, 69.2],  // Incident
+      [22.0, 69.8],  // Jamnagar coast
+    ],
+    // Andaman Sea / Ten Degree Channel
+    andaman_sea: [
+      [5.0, 100.5],  // Malacca exit
+      [7.0, 97.5],   // Andaman approach
+      [9.5, 94.5],   // Ten Degree Channel
+      [10.2, 92.8],  // Incident zone
+      [12.0, 90.0],  // Bay of Bengal main
+      [14.0, 87.5],  // NW Bay
+    ],
+    // Malacca Strait
+    malacca_strait: [
+      [1.2, 104.8],  // Singapore exit
+      [2.5, 102.5],  // Malacca strait
+      [4.5, 100.0],  // Penang area
+      [6.0, 99.5],   // N Malacca
+      [7.5, 98.5],   // Andaman approach
+      [8.5, 97.8],   // Six Degree Channel
+    ],
+    // Gulf of Aden / Hormuz
+    hormuz_strait: [
+      [23.5, 58.5],  // Muscat approach
+      [24.5, 57.0],  // Hormuz strait
+      [25.5, 56.2],  // Al Quoin Islands
+      [26.0, 56.5],  // Persian Gulf entry
+      [26.5, 57.5],  // UAE coast
+    ],
+    // Red Sea
+    red_sea_north: [
+      [28.0, 34.0],  // Suez approach
+      [24.0, 36.0],  // N Red Sea
+      [20.0, 38.5],  // Mid Red Sea
+      [16.0, 41.5],  // S Red Sea
+      [12.5, 43.5],  // Bab el-Mandeb
+    ],
+    // East Africa coast
+    east_africa: [
+      [-1.5, 40.5],  // Mombasa
+      [-4.5, 40.0],  // Tanzania coast
+      [-8.0, 39.8],  // Zanzibar channel
+      [-11.5, 40.5], // Mozambique approach
+    ],
+    // Atlantic / Cape route
+    cape_route: [
+      [-34.5, 26.5], // Cape waters
+      [-30.0, 31.5], // Durban approach
+      [-25.0, 34.5], // Mozambique coast
+      [-18.0, 37.5], // N Mozambique Channel
+    ],
+    // Tuticorin / Palk Strait
+    tuticorin_port: [
+      [8.5, 80.5],   // SE Sri Lanka
+      [9.0, 79.5],   // Palk Strait
+      [8.8, 78.2],   // Tuticorin approach
+      [8.5, 77.5],   // Harbor approach
+    ],
+  };
+  
+  const template = LANE_TEMPLATES[secKey];
+  if(!template) {
+    // Generic route if no template: generate a realistic curve by adding
+    // a slight lateral deviation at the midpoint rather than pure straight line
+    const startLat = cpaPoint[0] + (fairwayHeading > 180 ? -3 : 3);
+    const startLng = cpaPoint[1] + (fairwayHeading > 90 && fairwayHeading < 270 ? -4 : 4);
+    const endLat = cpaPoint[0] - (fairwayHeading > 180 ? -3 : 3);
+    const endLng = cpaPoint[1] - (fairwayHeading > 90 && fairwayHeading < 270 ? -4 : 4);
+    return [[startLat, startLng], [cpaPoint[0] + 0.5, cpaPoint[1] + 0.5], cpaPoint, [endLat, endLng]];
+  }
+  
+  // Find the closest waypoint to the cpaPoint in the template
+  let closestIdx = 0;
+  let closestDist = Infinity;
+  template.forEach(([wlat, wlng], i) => {
+    const d = Math.sqrt(Math.pow(wlat - cpaPoint[0], 2) + Math.pow(wlng - cpaPoint[1], 2));
+    if(d < closestDist) { closestDist = d; closestIdx = i; }
+  });
+  
+  return template;
+}
+
+/**
+ * Interpolate a position along an array of waypoints [[lat,lng],...] 
+ * starting from cpaPoint, moving distKm along the route (- = backward, + = forward).
+ * Returns [lat, lng].
+ */
+function interpAlongWaypoints(waypoints, cpaPoint, distKm, speedKmH) {
+  if(!waypoints || waypoints.length < 2) {
+    return cpaPoint;
+  }
+  
+  // Find the closest waypoint index to cpaPoint
+  let closestIdx = 0, closestDist = Infinity;
+  waypoints.forEach(([wlat, wlng], i) => {
+    const d = Math.sqrt(Math.pow(wlat - cpaPoint[0], 2) + Math.pow(wlng - cpaPoint[1], 2));
+    if(d < closestDist) { closestDist = d; closestIdx = i; }
+  });
+  
+  // Walk along the waypoint path from the CPA point
+  const R = 6371;
+  function haverDist(a, b) {
+    const dLat = (b[0]-a[0])*Math.PI/180, dLon = (b[1]-a[1])*Math.PI/180;
+    const s = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s));
+  }
+  
+  if(distKm === 0) return cpaPoint;
+  
+  const forward = distKm > 0;
+  let remaining = Math.abs(distKm);
+  let curPos = cpaPoint;
+  let i = closestIdx;
+  
+  while(remaining > 0) {
+    const nextIdx = forward ? i + 1 : i - 1;
+    if(nextIdx < 0 || nextIdx >= waypoints.length) {
+      // Extrapolate past end of lane: continue last heading
+      const lastA = forward ? waypoints[waypoints.length - 2] : waypoints[1];
+      const lastB = forward ? waypoints[waypoints.length - 1] : waypoints[0];
+      const bear = Math.atan2(
+        Math.sin((lastB[1]-lastA[1])*Math.PI/180)*Math.cos(lastB[0]*Math.PI/180),
+        Math.cos(lastA[0]*Math.PI/180)*Math.sin(lastB[0]*Math.PI/180)-Math.sin(lastA[0]*Math.PI/180)*Math.cos(lastB[0]*Math.PI/180)*Math.cos((lastB[1]-lastA[1])*Math.PI/180)
+      ) * 180/Math.PI;
+      const brng = ((bear + 360) % 360);
+      const extendBrng = forward ? brng : (brng + 180) % 360;
+      return destPoint(curPos[0], curPos[1], extendBrng, remaining);
+    }
+    
+    const nextWp = waypoints[nextIdx];
+    const segDist = haverDist(curPos, nextWp);
+    
+    if(remaining <= segDist) {
+      // Interpolate within this segment
+      const f = remaining / segDist;
+      return [
+        curPos[0] + (nextWp[0] - curPos[0]) * f,
+        curPos[1] + (nextWp[1] - curPos[1]) * f
+      ];
+    }
+    
+    remaining -= segDist;
+    curPos = nextWp;
+    i = nextIdx;
+  }
+  
+  return curPos;
+}
+
+function renderMapOverlays() { renderMapLayers(); }
+
 function runAIS(inv) {
   const origin = (inv.drift && inv.drift.origin) ? inv.drift.origin : ((inv.detection && inv.detection.centroid) ? inv.detection.centroid : (inv.originCoords || [19.420, 71.330]));
   const spillTime = (inv.drift && typeof inv.drift.spillTime === 'number') ? inv.drift.spillTime : -36;
@@ -4328,12 +4519,20 @@ function runAIS(inv) {
     const speedKmH = speedKnots * 1.852;
     const isPrime = (idx === 0) || (distKm <= 0.5) || (v.score && v.score >= 90) || (v.status && v.status.includes('HIGH'));
 
-    // Compute authentic geospatial trajectory centered around calculated spill origin in this sector
+    // Compute authentic geospatial trajectory with realistic maritime routing
+    // Use actual shipping lane waypoints per sector, not a straight bearing line
     const cpaPoint = isPrime ? [origin[0], origin[1]] : destPoint(origin[0], origin[1], (fairwayHeading + 90) % 360, distKm);
+    
+    // Get sector-specific shipping lane waypoints for realistic track shape
+    const laneWaypoints = getShippingLaneWaypoints(sec, origin, cpaPoint, fairwayHeading);
+    
+    // Build the track by interpolating along these realistic waypoints
     const sampleT = [-48, -36, -24, -12, 0, 6, 12];
     v.track = sampleT.map(t => {
       const dt = t - cpaT;
-      const p = pointAlong(cpaPoint, fairwayHeading, speedKmH * dt);
+      const distKm2 = speedKmH * dt;
+      // Walk along the waypoint path for realistic curved route
+      const p = interpAlongWaypoints(laneWaypoints, cpaPoint, distKm2, speedKmH);
       return [t, +p[0].toFixed(4), +p[1].toFixed(4)];
     });
 
