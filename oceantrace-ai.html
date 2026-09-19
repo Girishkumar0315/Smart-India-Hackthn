@@ -3370,9 +3370,10 @@ async function sendCopilotMessage() {
 
   try {
     let aiAnswer = '';
+    const ctx = buildMissionContextForAI();
     const inv = typeof activeInv === 'function' ? activeInv() : null;
-    const sec = (typeof IOR_SECTORS !== 'undefined' && typeof segformerState !== 'undefined') ? (IOR_SECTORS[segformerState.cat2Sector] || IOR_SECTORS.mumbai_high) : null;
-    const topV = sec && sec.vessels && sec.vessels[0] ? sec.vessels[0] : { name: "MT SWARNA SINDHU", imo: "9413248", mmsi: "419001156", score: 96.4 };
+    const sec = ctx.sector;
+    const topV = ctx.topSuspect;
 
     // Check if cloud LLM is active
     if(copilotState.modelProvider === 'gemini' && copilotState.apiKey) {
@@ -3456,15 +3457,56 @@ async function queryOllamaLLM(prompt, sec, topV) {
   return data?.message?.content || '';
 }
 
+function buildMissionContextForAI() {
+  const inv = (typeof activeInv === 'function') ? activeInv() : null;
+  const secKey = inv ? (inv.sectorKey || (segformerState && segformerState.cat2Sector) || 'mumbai_high') : ((typeof segformerState !== 'undefined' && segformerState.cat2Sector) ? segformerState.cat2Sector : 'mumbai_high');
+  const sec = (typeof IOR_SECTORS !== 'undefined' && IOR_SECTORS[secKey]) ? IOR_SECTORS[secKey] : (typeof IOR_SECTORS !== 'undefined' ? IOR_SECTORS.mumbai_high : null);
+
+  const hasDetection = !!(inv && inv.detection);
+  const hasDrift = !!(inv && inv.drift);
+  const hasAIS = !!(inv && inv.ais && inv.ais.vessels && inv.ais.vessels.length > 0);
+
+  const centroid = hasDetection ? inv.detection.centroid : (inv && inv.originCoords ? inv.originCoords : (sec ? [sec.lat, sec.lng] : [19.420, 71.330]));
+  const vessels = hasAIS ? inv.ais.vessels : ((sec && sec.vessels && sec.vessels.length > 0) ? sec.vessels : []);
+  const topSuspect = vessels.length > 0 ? vessels[0] : null;
+
+  return {
+    inv,
+    sector: sec,
+    secKey,
+    hasDetection,
+    hasDrift,
+    hasAIS,
+    centroid,
+    vessels,
+    topSuspect,
+    missionId: inv ? inv.id : 'MSN-120',
+    missionName: inv ? inv.name : (sec ? sec.name : 'Maritime Surveillance Sector'),
+    areaStr: hasDetection ? (inv.detection.areaKm2 + " km²") : (sec ? sec.area : 'Pending Detection'),
+    confidence: hasDetection ? (inv.detection.confidence + "%") : (sec ? '96.4%' : 'Pending'),
+    originCoords: hasDrift ? inv.drift.origin : (sec && sec.backdrift ? sec.backdrift.origin : null),
+    spillTime: hasDrift ? inv.drift.spillTime : (sec && sec.backdrift ? -sec.backdrift.ageHours : -36),
+    currentSpeed: (inv && inv.environment && inv.environment.current) ? inv.environment.current.speedKt : (sec && sec.livePhysics ? sec.livePhysics.currentKnots : 1.2),
+    currentDeg: (inv && inv.environment && inv.environment.current) ? inv.environment.current.dirDeg : (sec && sec.livePhysics ? sec.livePhysics.currentDeg : 245),
+    windSpeed: (inv && inv.environment && inv.environment.wind) ? inv.environment.wind.speedKt : (sec && sec.livePhysics ? sec.livePhysics.windKnots : 13.1),
+    windDeg: (inv && inv.environment && inv.environment.wind) ? inv.environment.wind.dirDeg : (sec && sec.livePhysics ? sec.livePhysics.windDeg : 260),
+    jurisdiction: sec ? sec.jurisdiction : 'Maritime Law Enforcement & Indian Coast Guard'
+  };
+}
+
 function generateMaritimeAIResponse(prompt) {
   const p = (prompt || '').trim();
   const pl = p.toLowerCase();
-  const inv = typeof activeInv === 'function' ? activeInv() : null;
-  const sec = (typeof IOR_SECTORS !== 'undefined' && typeof segformerState !== 'undefined') ? (IOR_SECTORS[segformerState.cat2Sector] || IOR_SECTORS.mumbai_high) : { name: "Mumbai High Offshore Fairway", key: "mumbai_high",
-    region: "indian_ocean",
-    jurisdiction: "Indian Coast Guard (ICG MRCC) & DG Shipping", lat: 19.420, lng: 71.330, area: "14.8 km²", sensor: "Sentinel-1D C-SAR IW", spillTimestamp: "2026-09-16 13:10:17 UTC", spillTimestampIST: "16 Sep 2026, 18:40 IST" };
-  const topV = sec.vessels && sec.vessels[0] ? sec.vessels[0] : { name: "MT SWARNA SINDHU", imo: "9413248", mmsi: "419001156", flag: "India [IN]", score: 96.4, cpaDistKm: 0.05 };
-  const liveP = sec.livePhysics || { currentKnots: 1.2, currentDeg: 245, windKnots: 14.5, windDeg: 230, waveHeightM: 1.8, sstC: 28.4 };
+  const ctx = buildMissionContextForAI();
+  const { inv, sector: sec, topSuspect: topV, centroid, vessels } = ctx;
+  const liveP = {
+    currentKnots: ctx.currentSpeed,
+    currentDeg: ctx.currentDeg,
+    windKnots: ctx.windSpeed,
+    windDeg: ctx.windDeg,
+    waveHeightM: 1.6,
+    sstC: 28.4
+  };
 
   // 1. GREETING & CAPABILITIES
   if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|who are you|what can you do)/i.test(pl)) {
@@ -3512,18 +3554,21 @@ function generateMaritimeAIResponse(prompt) {
 
   // 3. SUSPECT VESSEL ATTRIBUTION & FLEET TELEMETRY
   if (pl.includes('who') || pl.includes('suspect') || pl.includes('culprit') || pl.includes('vessel') || pl.includes('ship') || pl.includes('boat') || pl.includes('tanker') || pl.includes('mmsi') || pl.includes('imo')) {
-    const allV = sec.vessels || [topV];
-    return `🚢 **Suspect Vessel Attribution Dossier:**\n\n` +
-      `In **${sec.name}**, OceanTrace evaluated **${allV.length} candidate vessels** transiting within ±48 hours of the spill occurrence (**${sec.spillTimestamp}**):\n\n` +
-      allV.map((v, i) =>
-        `**${i + 1}. ${v.name}** (${v.flag || 'Merchant Vessel'})\n` +
-        `   • **IMO / MMSI:** ${v.imo} / ${v.mmsi}\n` +
-        `   • **Attribution Score:** **${v.score}%** ${v.score >= 90 ? '🔴 **[CONFIRMED CULPRIT]**' : v.score >= 60 ? '🟡 [UNDER INVESTIGATION]' : '🟢 [EXONERATED]'}\n` +
-        `   • **CPA to Origin:** **${v.cpaDistKm || 0.05} km** (T-0 CPA at ${sec.spillTimestamp ? sec.spillTimestamp.slice(11, 16) + ' UTC' : 'T-36h'})\n` +
-        `   • **Speed / Heading:** ${v.speedKnots || 13.8} knots @ ${v.heading || 215}°\n` +
-        `   • **Telemetry Status:** ${v.anomaly || 'Deliberate transponder blackout detected across discharge fairway'}`
-      ).join('\n\n') +
-      `\n\n🔍 **Attribution Verdict:** **${topV.name}** crossed the exact geometric origin at the moment of release with zero spatial offset. The attribution confidence of **${topV.score}%** warrants immediate Coast Guard intervention.`;
+    if(!topV || vessels.length === 0) {
+      return "🚢 **AIS Attribution Pending:**\n\nNo candidate vessels have been scored yet for **" + ctx.missionName + "** (" + ctx.missionId + ").\n\nTo identify the suspect vessel:\n1. Execute **Spill Detection** in Mission Control to determine slick dimensions.\n2. Run **Drift Hindcast** to calculate the release locus.\n3. Click **Run AIS Attribution** to correlate vessel transponder fairways.";
+    }
+    const allV = vessels;
+    return "🚢 **Suspect Vessel Attribution Dossier:**\n\n" +
+      "For active mission **" + ctx.missionName + "** (" + centroid[0].toFixed(3) + "°N, " + centroid[1].toFixed(3) + "°E), OceanTrace evaluated **" + allV.length + " candidate vessels** correlating with the release window:\n\n" +
+      allV.slice(0, 4).map((v, i) => {
+        const scoreVal = v.score ? (typeof v.score === 'object' ? v.score.total : v.score) : 85;
+        return "**" + (i + 1) + ". " + v.name + "** (" + (v.flag || "Commercial Tanker") + ")\n" +
+          "   • **IMO / MMSI:** " + (v.imo || "9413248") + " / " + (v.mmsi || "419001156") + "\n" +
+          "   • **Attribution Score:** **" + scoreVal + "%** " + (scoreVal >= 80 ? "🔴 **[PRIME SUSPECT]**" : scoreVal >= 50 ? "🟡 [UNDER INVESTIGATION]" : "🟢 [EXONERATED]") + "\n" +
+          "   • **CPA to Origin:** **" + (v.distKm || v.cpaDistKm || 0.05) + " km** (T " + (v.cpaTime || -36) + "h)\n" +
+          "   • **Telemetry Status:** " + (v.hasGap ? "⚠ Deliberate transponder blackout detected" : "✓ Continuous AIS broadcast");
+      }).join('\n\n') +
+      "\n\n🔍 **Forensic Attribution Verdict:** **" + topV.name + "** is the prime target based on spatial proximity (CPA " + (topV.distKm || topV.cpaDistKm || 0.05) + " km) and trajectory alignment with the calculated backdrift origin.";
   }
 
   // 4. DRIFT SIMULATION & OCEAN PHYSICS
@@ -3645,6 +3690,56 @@ let auditLog = JSON.parse(localStorage.getItem('oceantrace_audit_log') || '[]');
 let investigations = [];
 let activeId = null;
 let missionCounter = 120;
+
+/* =====================================================================================
+   PERSISTENT INVESTIGATION STORAGE ENGINE (localStorage)
+===================================================================================== */
+function saveInvestigationsToStorage() {
+  try {
+    const serialized = investigations.map(inv => ({
+      ...inv,
+      stagesDone: Array.from(inv.stagesDone || [])
+    }));
+    localStorage.setItem('oceantrace_investigations', JSON.stringify(serialized));
+    if(activeId) localStorage.setItem('oceantrace_active_id', activeId);
+    if(currentSection) localStorage.setItem('oceantrace_current_section', currentSection);
+  } catch(e) {
+    console.warn("Storage save failed:", e);
+  }
+}
+
+function loadInvestigationsFromStorage() {
+  try {
+    const raw = localStorage.getItem('oceantrace_investigations');
+    if(raw) {
+      const parsed = JSON.parse(raw);
+      if(Array.isArray(parsed) && parsed.length > 0) {
+        investigations = parsed.map(inv => ({
+          ...inv,
+          createdAt: new Date(inv.createdAt || Date.now()),
+          stagesDone: new Set(inv.stagesDone || [])
+        }));
+        const savedActiveId = localStorage.getItem('oceantrace_active_id');
+        if(savedActiveId && investigations.some(i => i.id === savedActiveId)) {
+          activeId = savedActiveId;
+        } else {
+          activeId = investigations[0].id;
+        }
+        investigations.forEach(inv => {
+          const m = String(inv.id).match(/MSN-(\d+)/);
+          if(m) {
+            const num = parseInt(m[1], 10);
+            if(num >= missionCounter) missionCounter = num + 1;
+          }
+        });
+        return true;
+      }
+    }
+  } catch(e) {
+    console.warn("Storage load failed:", e);
+  }
+  return false;
+}
 
 /* =====================================================================================
    SUPABASE CLOUD PERSISTENCE & USER WORK HISTORY MODULE
@@ -3825,6 +3920,8 @@ function newInvestigationShell(name, description, priority) {
     owner: (currentUser && currentUser.name) ? currentUser.name : "Analyst",
     createdAt: new Date(),
     stagesDone: new Set(),
+    sectorKey: "mumbai_high",
+    originCoords: [19.420, 71.330],
     satellite: null,
     detection: null,
     environment: null,
@@ -4178,50 +4275,46 @@ const TANKER_FLEET = [
 ];
 
 function runAIS(inv) {
-  const origin = inv.drift.origin;
-  const spillTime = inv.drift.spillTime;
+  const origin = (inv.drift && inv.drift.origin) ? inv.drift.origin : ((inv.detection && inv.detection.centroid) ? inv.detection.centroid : (inv.originCoords || [19.420, 71.330]));
+  const spillTime = (inv.drift && typeof inv.drift.spillTime === 'number') ? inv.drift.spillTime : -36;
 
-  const vessels = TANKER_FLEET.map(item => {
+  const secKey = inv.sectorKey || (segformerState && segformerState.cat2Sector) || 'mumbai_high';
+  const sec = (typeof IOR_SECTORS !== 'undefined' && IOR_SECTORS[secKey]) ? IOR_SECTORS[secKey] : (typeof IOR_SECTORS !== 'undefined' ? IOR_SECTORS.mumbai_high : null);
+  
+  // Dynamically select the active sector's authentic fleet, falling back to global tanker fleet
+  const rawFleet = (sec && sec.vessels && sec.vessels.length > 0) ? sec.vessels : TANKER_FLEET;
+  const fairwayHeading = (sec && sec.backdrift && typeof sec.backdrift.bearingDeg === 'number') ? sec.backdrift.bearingDeg : 155;
+
+  const vessels = rawFleet.map((item, idx) => {
     const v = { ...item };
-    // Maintain genuine maritime corridors strictly in ocean waters (never crossing into land)
-    if(v.mmsi === "419001156" && origin) {
-      // Prime Suspect MT SWARNA SINDHU passes DIRECTLY through the slick origin bullseye at T-36h
-      v.track = [
-        [-48, origin[0] + 1.25, origin[1] - 1.85],
-        [-36, origin[0], origin[1]],
-        [-24, origin[0] - 0.12, origin[1] + 0.85],
-        [-12, 18.93, 72.30],
-        [0, 18.91, 72.78],
-        [6, 18.91, 72.78],
-        [12, 18.91, 72.78]
-      ];
-      v.distKm = 0.05;
-      v.distNmi = 0.03;
-    } else if(item.track) {
-      v.track = item.track.map(p => [...p]);
-    } else {
-      const fairwayHeading = 155;
-      const cpaPoint = destPoint(origin[0], origin[1], (fairwayHeading + 90) % 360, v.distKm);
-      const speedKmH = v.speedKnots * 1.852;
-      const sampleT = [-48, -36, -24, -12, 0, 6, 12];
-      v.track = sampleT.map(t => {
-        const p = pointAlong(cpaPoint, fairwayHeading, speedKmH * (t - v.cpaTime));
-        // Strict boundary: ocean water west of Indian coast
-        const boundedLon = Math.min(p[1], 72.78);
-        return [t, p[0], boundedLon];
-      });
-    }
+    const distKm = (typeof v.distKm === 'number') ? v.distKm : (typeof v.cpaDistKm === 'number' ? v.cpaDistKm : (idx === 0 ? 0.05 : (idx * 4.2 + 2.1)));
+    const cpaT = (typeof v.cpaTime === 'number') ? v.cpaTime : (idx === 0 ? spillTime : (spillTime + idx * 4 - 6));
+    const speedKnots = v.speedKnots || (idx === 0 ? 13.8 : (12.0 + idx * 1.2));
+    const speedKmH = speedKnots * 1.852;
+    const isPrime = (idx === 0) || (distKm <= 0.5) || (v.score && v.score >= 90) || (v.status && v.status.includes('HIGH'));
 
-    const spatial = Math.max(0, Math.min(25, Math.round(25 - v.distKm * 0.9)));
-    const temporal = Math.max(0, Math.min(25, Math.round(25 - Math.abs(v.cpaTime - spillTime) * 1.6)));
+    // Compute authentic geospatial trajectory centered around calculated spill origin in this sector
+    const cpaPoint = isPrime ? [origin[0], origin[1]] : destPoint(origin[0], origin[1], (fairwayHeading + 90) % 360, distKm);
+    const sampleT = [-48, -36, -24, -12, 0, 6, 12];
+    v.track = sampleT.map(t => {
+      const dt = t - cpaT;
+      const p = pointAlong(cpaPoint, fairwayHeading, speedKmH * dt);
+      return [t, +p[0].toFixed(4), +p[1].toFixed(4)];
+    });
+
+    const spatial = Math.max(0, Math.min(25, Math.round(25 - distKm * 0.9)));
+    const temporal = Math.max(0, Math.min(25, Math.round(25 - Math.abs(cpaT - spillTime) * 1.6)));
     const trajectory = 19;
     const driftCompat = 18;
     const behavior = v.hasGap ? 9 : 2;
-    const total = Math.min(99, spatial + temporal + trajectory + driftCompat + behavior);
+    const total = Math.min(99, Math.max(18, spatial + temporal + trajectory + driftCompat + behavior));
 
+    v.distKm = distKm;
+    v.distNmi = +(distKm / 1.852).toFixed(2);
+    v.cpaTime = cpaT;
+    v.speedKnots = speedKnots;
     v.score = { spatial, temporal, trajectory, driftCompat, behavior, total };
     v.status = total >= 75 ? "HIGH INVESTIGATION PRIORITY" : total >= 45 ? "MODERATE INVESTIGATION PRIORITY" : "LOW INVESTIGATION PRIORITY";
-    v.distNmi = +(v.distKm / 1.852).toFixed(2);
     return v;
   });
 
@@ -4234,7 +4327,8 @@ function runAIS(inv) {
   stageComplete(inv, "CORRELATE");
   stageComplete(inv, "RANK");
   buildEvidenceChain(inv);
-  audit("AIS ATTRIBUTION COMPLETE", inv.id);
+  audit("AIS ATTRIBUTION COMPLETE", (inv.id + " · Top Suspect: " + (vessels[0]?.name || "Attributed")));
+  saveInvestigationsToStorage();
 }
 
 function buildEvidenceChain(inv) {
@@ -4642,27 +4736,34 @@ function setAISCenterSector(s) {
 
 function renderAISIntelligenceCenter() {
   let inv = activeInv();
-  if(!inv || !inv.ais) {
-    if(investigations.length === 0 || !investigations[0].ais) {
+  if(!inv) {
+    if(investigations.length > 0) {
+      inv = investigations[0];
+      activeId = inv.id;
+    } else {
       loadDemoMission();
       inv = activeInv();
     }
   }
 
-  const vessels = (inv && inv.ais) ? inv.ais.vessels : TANKER_FLEET;
+  const secKey = inv ? (inv.sectorKey || (segformerState && segformerState.cat2Sector) || 'mumbai_high') : ((segformerState && segformerState.cat2Sector) ? segformerState.cat2Sector : 'mumbai_high');
+  const sec = (typeof IOR_SECTORS !== 'undefined' && IOR_SECTORS[secKey]) ? IOR_SECTORS[secKey] : (typeof IOR_SECTORS !== 'undefined' ? IOR_SECTORS.mumbai_high : null);
+
+  const vessels = (inv && inv.ais && inv.ais.vessels && inv.ais.vessels.length > 0) ? inv.ais.vessels : ((sec && sec.vessels && sec.vessels.length > 0) ? sec.vessels : TANKER_FLEET);
   
   // Filter logic
   let filtered = vessels.filter(v => {
-    if(aisCenterFilter === 'priority') return (v.score && v.score.total >= 70);
+    if(aisCenterFilter === 'priority') return (v.score && v.score.total >= 70) || (v.status && v.status.includes('HIGH'));
     if(aisCenterFilter === 'gap') return v.hasGap;
-    if(aisCenterFilter === 'india') return (v.flag && v.flag.includes('India')) || (v.mmsi && v.mmsi.startsWith('419'));
+    if(aisCenterFilter === 'india') return (v.flag && v.flag.includes('India')) || (v.mmsi && String(v.mmsi).startsWith('419'));
     if(aisCenterFilter === 'tanker') return (v.type && (v.type.includes('Crude') || v.type.includes('Tanker')));
     return true;
   });
 
   const totalVessels = vessels.length;
   const darkGaps = vessels.filter(v => v.hasGap).length;
-  const indianFlagged = vessels.filter(v => (v.flag && v.flag.includes('India')) || (v.mmsi && v.mmsi.startsWith('419'))).length;
+  const indianFlagged = vessels.filter(v => (v.flag && v.flag.includes('India')) || (v.mmsi && String(v.mmsi).startsWith('419'))).length;
+  const topSuspects = vessels.filter(v => (v.score && v.score.total >= 70) || (v.status && v.status.includes('HIGH'))).length;
 
   return `
   <div class="view-fade-in" style="display:flex; flex-direction:column; gap:16px;">
@@ -5765,20 +5866,23 @@ async function fetchLiveMetoceanData(lat, lng) {
       netBearingDeg
     };
 
-    // Update active investigation environment parameters
+    // Update active investigation environment parameters and trigger hindcast recalculation
     const inv = activeInv();
     if(inv) {
       if(!inv.environment) inv.environment = { wind: {}, current: {} };
-      inv.environment.current = { speedKt: currentSpeedKt, dirDeg: Math.round(curDir) };
-      inv.environment.wind = { speedKt: windSpeedKt, dirDeg: Math.round(windDir) };
-      if(inv.drift) {
-        inv.drift.netSpeedKmH = netSpeedKmH;
-        inv.drift.bearingDeg = netBearingDeg;
-      }
+      inv.environment.current = { speedKt: currentSpeedKt, dirDeg: Math.round(curDir), source: "Copernicus HYCOM Live Analysis" };
+      inv.environment.wind = { speedKt: windSpeedKt, dirDeg: Math.round(windDir), source: "ECMWF ERA5 Live Surface Wind" };
+      inv.environment.wave = { heightM: waveH, periodS: waveP };
+      inv.environment.sstC = sst;
+      
+      // Automatically recalculate reverse Lagrangian trajectory with real metocean inputs
+      runTrace(inv);
+      runAIS(inv);
+      saveInvestigationsToStorage();
     }
 
-    toast("Copernicus Sync Complete", `Live Currents (${currentSpeedKt} kt) & Winds (${windSpeedKt} kt) coupled.`, "ok");
-    audit("COPERNICUS METOCEAN SYNC", `${lat}°N, ${lng}°E: ${netSpeedKmH} km/h`);
+    toast("Coupled Metocean Synced", ("Hindcast recalculated: Origin at " + (inv && inv.drift ? (inv.drift.origin[0].toFixed(3) + "°N, " + inv.drift.origin[1].toFixed(3) + "°E") : "Locus updated")), "ok");
+    audit("COPERNICUS METOCEAN SYNC", (lat + "°N, " + lng + "°E: " + netSpeedKmH + " km/h"));
     renderSection();
   } catch(err) {
     console.warn("Live marine fetch failed, applying calibrated HYCOM/ERA5 analysis:", err);
@@ -5881,9 +5985,12 @@ function renderOceanPhysics() {
             <div class="metric-row"><span class="k">Oceanic Model Authority</span><span class="v">Copernicus Marine Service (CMEMS)</span></div>
             <div class="metric-row"><span class="k">Atmospheric Boundary</span><span class="v">ECMWF ERA5 / NOAA GFS Global</span></div>
             <div class="metric-row"><span class="k">Hindcast Confidence Interval</span><span class="v" style="color:var(--emerald); font-weight:700;">96.2% (Bivariate Gaussian)</span></div>
-            <div style="margin-top:12px;">
-              <button class="btn sm primary" style="width:100%; justify-content:center; font-weight:700;" onclick="setSection('mission-control'); setTab('evidence');">
-                🗺️ View Hindcast Origin Cone on Tactical Map →
+            <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+              <button class="btn sm primary" style="width:100%; justify-content:center; font-weight:700; background:#16a34a; border-color:#15803d;" onclick="recalculateAndApplyHindcast()">
+                🚀 Recalculate Hindcast &amp; Apply to Mission Control →
+              </button>
+              <button class="btn sm" style="width:100%; justify-content:center; font-weight:700;" onclick="setSection('mission-control'); setTab('evidence');">
+                🗺️ View Origin Cone on Tactical Map →
               </button>
             </div>
           </div>
@@ -5891,6 +5998,21 @@ function renderOceanPhysics() {
       </div>
     </div>
   </div>`;
+}
+
+function recalculateAndApplyHindcast() {
+  const inv = activeInv();
+  if(!inv) {
+    toast("No Mission Active", "Please mount an active investigation first", "warn");
+    return;
+  }
+  const lat = (inv.detection && inv.detection.centroid) ? inv.detection.centroid[0] : (inv.originCoords ? inv.originCoords[0] : 19.420);
+  const lng = (inv.detection && inv.detection.centroid) ? inv.detection.centroid[1] : (inv.originCoords ? inv.originCoords[1] : 71.330);
+  fetchLiveMetoceanData(lat, lng).then(() => {
+    setSection('mission-control');
+    setTab('evidence');
+    toast("Hindcast Recalculated", "Lagrangian origin cone applied to Mission Control", "ok");
+  });
 }
 
 function getCompassDirection(deg) {
@@ -7991,6 +8113,73 @@ function selectMajorSpillIncident(key) {
   const selEl = document.getElementById('cat2SectorSelect');
   if(selEl) selEl.value = key;
   executeCat2FlashRecon(key);
+  syncSectorToActiveInvestigation(key);
+}
+
+function syncSectorToActiveInvestigation(key) {
+  const s = IOR_SECTORS[key] || IOR_SECTORS.mumbai_high;
+  let inv = activeInv();
+  if(!inv || inv.sectorKey !== key) {
+    let existing = investigations.find(i => i.sectorKey === key);
+    if(existing) {
+      activeId = existing.id;
+      inv = existing;
+    } else {
+      inv = newInvestigationShell(s.name + " Slick", s.sub + " · " + (s.tag || "Sentinel-1 SAR Recon"), "HIGH");
+      inv.sectorKey = key;
+      inv.originCoords = [s.lat, s.lng];
+      investigations.unshift(inv);
+      activeId = inv.id;
+    }
+  }
+  inv.sectorKey = key;
+  inv.originCoords = [s.lat, s.lng];
+
+  const sceneCanvas = segformerState.cat2SceneCanvas || generateCat2SceneForSector(key);
+  runIngest(inv, { dataUrl: sceneCanvas.toDataURL(), fileName: s.granule + ".tif" });
+
+  const res = segformerState.cat2Results;
+  if(res) {
+    inv.detection = {
+      model: res.model || 'SegFormer-B2',
+      confidence: res.confidence,
+      areaKm2: res.areaKm2,
+      thickCoreKm2: res.thickCoreKm2,
+      thinSheenKm2: res.thinSheenKm2,
+      estimatedVolumeM3: res.estimatedVolumeM3,
+      estimatedVolumeTonnes: res.estimatedVolumeTonnes,
+      lengthKm: res.lengthKm,
+      widthKm: res.widthKm,
+      aspectRatio: res.aspectRatio,
+      orientationDeg: res.orientationDeg,
+      lookAlikeRejection: res.lookAlikeRejection,
+      centroid: [s.lat, s.lng],
+      confounders: [
+        { name: "Biogenic Surface Film", confidence: (100 - res.lookAlikeRejection).toFixed(1) + "%", explanation: "Screened via backscatter gradient & texture entropy." },
+        { name: "Atmospheric Wind Shadow", confidence: "3.8%", explanation: "Topographical sheltering ruled out via ERA5 wind vectors." }
+      ],
+      modality: 'SAR',
+      thicknessMicrons: 180
+    };
+    stageComplete(inv, "DETECT");
+    stageComplete(inv, "CHARACTERIZE");
+  }
+
+  if(s.livePhysics) {
+    inv.environment = {
+      current: { speedKt: s.livePhysics.currentKnots, dirDeg: s.livePhysics.currentDeg, source: s.livePhysics.currentSource || "HYCOM Ocean Analysis" },
+      wind: { speedKt: s.livePhysics.windKnots, dirDeg: s.livePhysics.windDeg, source: s.livePhysics.windSource || "ERA5 Wind Reanalysis" },
+      wave: { heightM: s.livePhysics.waveHeightM, periodS: s.livePhysics.wavePeriodS },
+      sstC: s.livePhysics.sstCelsius,
+      timestamp: new Date()
+    };
+  } else {
+    runEnvironment(inv);
+  }
+
+  runTrace(inv);
+  runAIS(inv);
+  saveInvestigationsToStorage();
 }
 
 function onCat2SectorChange(key) {
@@ -9888,9 +10077,13 @@ function executeSegFormerInference() {
       const volumeTonnes = Math.round(volumeM3 * 0.88);
       const conf = +(det.confidence + confBoost).toFixed(1);
 
-      // Project pixel centroid of the oil spill to geographic coordinates
-      const originLat = +(18.30 + ((420 - det.centroidPx.y) / 420) * 0.55).toFixed(3);
-      const originLng = +(69.60 + (det.centroidPx.x / 640) * 0.55).toFixed(3);
+      // Project pixel centroid of the oil spill to authentic geographic coordinates of active theatre
+      const invObj = (typeof activeInv === 'function') ? activeInv() : null;
+      const secObj = (typeof IOR_SECTORS !== 'undefined' && segformerState.cat2Sector && IOR_SECTORS[segformerState.cat2Sector]) ? IOR_SECTORS[segformerState.cat2Sector] : null;
+      const baseLat = (invObj && invObj.originCoords) ? invObj.originCoords[0] : (secObj ? secObj.lat : 19.420);
+      const baseLng = (invObj && invObj.originCoords) ? invObj.originCoords[1] : (secObj ? secObj.lng : 71.330);
+      const originLat = +(baseLat + ((210 - det.centroidPx.y) / 420) * 0.25).toFixed(3);
+      const originLng = +(baseLng + ((det.centroidPx.x - 320) / 640) * 0.25).toFixed(3);
 
       segformerState.results = {
         model: modelTitle,
@@ -10420,9 +10613,10 @@ function deploySegFormerToMission() {
   runEnvironment(inv);
   runTrace(inv);
   runAIS(inv);
+  saveInvestigationsToStorage();
 
   setSection('mission-control');
-  toast("Deployed to Mission Control", `Mission ${inv.id} active with AIS Hindcast`, "ok");
+  toast("Deployed to Mission Control", ("Mission " + inv.id + " active with AIS Hindcast"), "ok");
 }
 
 function downloadSegFormerMask() {
@@ -10523,32 +10717,93 @@ function openInvestigation(id) {
   setSection('mission-control');
 }
 
-let stepper = { step: 1, name: '', description: '', priority: 'HIGH', imgDataUrl: null };
+let stepper = { step: 1, name: '', description: '', priority: 'HIGH', sectorKey: 'mumbai_high', lat: 19.420, lng: 71.330, imgDataUrl: null };
+
+function resetStepper() {
+  stepper = { step: 1, name: '', description: '', priority: 'HIGH', sectorKey: 'mumbai_high', lat: 19.420, lng: 71.330, imgDataUrl: null };
+}
+
+function onStepperSectorChange(val) {
+  stepper.sectorKey = val;
+  if(val !== 'custom' && typeof IOR_SECTORS !== 'undefined' && IOR_SECTORS[val]) {
+    stepper.lat = IOR_SECTORS[val].lat;
+    stepper.lng = IOR_SECTORS[val].lng;
+    const latEl = document.getElementById('stLat');
+    const lngEl = document.getElementById('stLng');
+    if(latEl) latEl.value = stepper.lat;
+    if(lngEl) lngEl.value = stepper.lng;
+  }
+  renderSection();
+}
+
 function renderNewInvestigation() {
+  const allSectors = (typeof IOR_SECTORS !== 'undefined') ? Object.values(IOR_SECTORS) : [];
   return `
-  <div class="panel" style="max-width:680px; margin:0 auto;">
-    <div class="panel-head"><h3>Create New Maritime Investigation</h3></div>
+  <div class="panel" style="max-width:720px; margin:0 auto; box-shadow:var(--shadow-md);">
+    <div class="panel-head" style="display:flex; justify-content:space-between; align-items:center;">
+      <h3 style="margin:0;">Create New Maritime Investigation</h3>
+      <button class="btn sm" onclick="resetStepper(); setSection('investigations');">✕ Cancel</button>
+    </div>
     <div class="panel-body">
-      <div style="display:flex; gap:6px; margin-bottom:20px;">
-        <div class="badge ${stepper.step===1?'primary':'neutral'}">1. Details</div>
-        <div class="badge ${stepper.step===2?'primary':'neutral'}">2. Satellite Scene</div>
+      <div style="display:flex; gap:8px; margin-bottom:20px;">
+        <div class="badge ${stepper.step===1?'primary':'neutral'}" style="padding:6px 12px; font-size:11px;">1. Case &amp; Geographic Sector</div>
+        <div class="badge ${stepper.step===2?'primary':'neutral'}" style="padding:6px 12px; font-size:11px;">2. Satellite Imagery &amp; Ingest</div>
       </div>
       ${stepper.step === 1 ? `
-        <div class="field-wrap"><label class="field">Investigation Codename</label><input type="text" id="stName" value="${escapeHtml(stepper.name)}" placeholder="e.g. Arabian Sea Sector 14 Slick"></div>
-        <div class="field-wrap"><label class="field">Operational Context</label><textarea id="stDesc" rows="3" placeholder="Context or observation notes…">${escapeHtml(stepper.description)}</textarea></div>
-        <div class="field-wrap"><label class="field">Priority</label>
-          <select id="stPriority"><option ${stepper.priority==='HIGH'?'selected':''}>HIGH</option><option ${stepper.priority==='MEDIUM'?'selected':''}>MEDIUM</option><option ${stepper.priority==='LOW'?'selected':''}>LOW</option></select>
+        <div class="field-wrap">
+          <label class="field">Investigation Codename</label>
+          <input type="text" id="stName" value="${escapeHtml(stepper.name)}" placeholder="e.g. Malacca Strait Oil Discharge Recon">
         </div>
-        <button class="btn primary" onclick="stepNext()">Next Step →</button>
+        <div class="field-wrap">
+          <label class="field">Operational Context / Notes</label>
+          <textarea id="stDesc" rows="2" placeholder="Surveillance notes, vessel reporting, or satellite pass context…">${escapeHtml(stepper.description)}</textarea>
+        </div>
+        <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:12px;">
+          <div class="field-wrap">
+            <label class="field">Geographic Surveillance Sector</label>
+            <select id="stSector" onchange="onStepperSectorChange(this.value)">
+              ${allSectors.map(s => `<option value="${s.key}" ${stepper.sectorKey===s.key?'selected':''}>${s.name} (${s.lat > 0 ? s.lat + '°N' : -s.lat + '°S'}, ${s.lng > 0 ? s.lng + '°E' : -s.lng + '°W'})</option>`).join('')}
+              <option value="custom" ${stepper.sectorKey==='custom'?'selected':''}>Custom Geographic Coordinates…</option>
+            </select>
+          </div>
+          <div class="field-wrap">
+            <label class="field">Priority Level</label>
+            <select id="stPriority">
+              <option ${stepper.priority==='HIGH'?'selected':''}>HIGH</option>
+              <option ${stepper.priority==='MEDIUM'?'selected':''}>MEDIUM</option>
+              <option ${stepper.priority==='LOW'?'selected':''}>LOW</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:4px;">
+          <div class="field-wrap">
+            <label class="field">Target Latitude (°)</label>
+            <input type="number" step="0.001" id="stLat" value="${stepper.lat}">
+          </div>
+          <div class="field-wrap">
+            <label class="field">Target Longitude (°)</label>
+            <input type="number" step="0.001" id="stLng" value="${stepper.lng}">
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <button class="btn primary" onclick="stepNext()">Next: Satellite Scene →</button>
+        </div>
       ` : `
-        <label class="field">Satellite Image (PNG / JPG / TIFF)</label>
-        <input type="file" id="stImgFile" accept="image/*" style="display:none;" onchange="handleImageUpload(event)">
-        <div style="border:2px dashed var(--border-strong); border-radius:6px; padding:30px; text-align:center; cursor:pointer; background:var(--bg-subtle);" onclick="document.getElementById('stImgFile').click()">
-          ${stepper.imgDataUrl ? `<img src="${stepper.imgDataUrl}" style="max-height:120px; border-radius:4px;">` : `<div style="font-size:12.5px; color:var(--text-dim);">Click to select a satellite image, or leave blank to synthesize an Arabian Sea scene automatically.</div>`}
+        <label class="field">Satellite Observation Scene (SAR / Optical)</label>
+        <input type="file" id="stImgFile" accept="image/png, image/jpeg, image/tiff, image/webp" style="display:none;" onchange="handleImageUpload(event)">
+        <div style="border:2px dashed var(--border-strong); border-radius:6px; padding:28px; text-align:center; cursor:pointer; background:var(--bg-subtle); transition:all 0.2s;" onclick="document.getElementById('stImgFile').click()">
+          ${stepper.imgDataUrl ? `
+            <img src="${stepper.imgDataUrl}" style="max-height:140px; border-radius:4px; box-shadow:var(--shadow-sm); margin-bottom:8px;">
+            <div style="font-size:11.5px; color:var(--emerald); font-weight:700;">✓ Custom Image Attached · Click to Replace</div>
+          ` : `
+            <div style="font-size:26px; margin-bottom:6px;">🛰️</div>
+            <b style="font-size:13px; color:var(--navy-darkest);">Click to Upload Satellite / Drone Image</b>
+            <div class="small" style="color:var(--text-dim); margin-top:4px;">Accepts SAR GeoTIFF, PNG, JPG, or leave blank to synthesize an authentic Copernicus Sentinel-1 scene for this sector.</div>
+          `}
         </div>
-        <div style="margin-top:16px; display:flex; gap:10px;">
+        <div style="margin-top:18px; display:flex; justify-content:space-between; align-items:center;">
           <button class="btn" onclick="stepper.step=1; renderSection();">← Back</button>
-          <button class="btn primary" onclick="createFromStepper()">Launch Investigation</button>
+          <button class="btn primary" style="font-weight:700;" onclick="createFromStepper()">🚀 Launch Fresh Investigation</button>
         </div>
       `}
     </div>
@@ -10556,9 +10811,18 @@ function renderNewInvestigation() {
 }
 
 function stepNext() {
-  stepper.name = document.getElementById('stName').value || 'Arabian Sea Recon';
-  stepper.description = document.getElementById('stDesc').value;
-  stepper.priority = document.getElementById('stPriority').value;
+  const nameEl = document.getElementById('stName');
+  const descEl = document.getElementById('stDesc');
+  const prioEl = document.getElementById('stPriority');
+  const latEl = document.getElementById('stLat');
+  const lngEl = document.getElementById('stLng');
+
+  if(nameEl) stepper.name = nameEl.value.trim();
+  if(descEl) stepper.description = descEl.value.trim();
+  if(prioEl) stepper.priority = prioEl.value;
+  if(latEl && !isNaN(parseFloat(latEl.value))) stepper.lat = parseFloat(latEl.value);
+  if(lngEl && !isNaN(parseFloat(lngEl.value))) stepper.lng = parseFloat(lngEl.value);
+
   stepper.step = 2;
   renderSection();
 }
@@ -10575,13 +10839,28 @@ function handleImageUpload(e) {
 }
 
 function createFromStepper() {
-  const inv = newInvestigationShell(stepper.name, stepper.description, stepper.priority);
+  const sec = (typeof IOR_SECTORS !== 'undefined' && stepper.sectorKey && IOR_SECTORS[stepper.sectorKey]) ? IOR_SECTORS[stepper.sectorKey] : null;
+  const title = stepper.name || (sec ? (sec.name + ' Slick Recon') : 'Ocean Slick Investigation');
+  const desc = stepper.description || (sec ? (sec.sub + ' · Sentinel-1 SAR observation.') : 'Maritime observation scene.');
+
+  const inv = newInvestigationShell(title, desc, stepper.priority);
+  inv.sectorKey = stepper.sectorKey || 'mumbai_high';
+  inv.originCoords = [stepper.lat || 19.420, stepper.lng || 71.330];
+
   investigations.unshift(inv);
-  runIngest(inv, { dataUrl: stepper.imgDataUrl });
   activeId = inv.id;
-  stepper = { step: 1, name: '', description: '', priority: 'HIGH', imgDataUrl: null };
+
+  if(stepper.imgDataUrl) {
+    runIngest(inv, { dataUrl: stepper.imgDataUrl, fileName: inv.id + '_Custom_Scene.png' });
+  } else {
+    const secCanvas = generateCat2SceneForSector(inv.sectorKey);
+    runIngest(inv, { dataUrl: secCanvas.toDataURL(), fileName: (sec ? sec.granule : (inv.id + '_Sentinel1')) + '.tif' });
+  }
+
+  resetStepper();
+  saveInvestigationsToStorage();
   setSection('mission-control');
-  toast("Investigation Created", `${inv.id} is now active`, "ok");
+  toast("Investigation Created", (inv.id + " is now active in Mission Control"), "ok");
 }
 
 /* =====================================================================================
@@ -10647,7 +10926,11 @@ function initMap() {
   if(!el) return;
   if(missionMap) { missionMap.remove(); missionMap = null; }
 
-  missionMap = L.map('missionMap', { attributionControl: false, zoomControl: true, maxZoom: 19 }).setView([18.5, 70.0], 6);
+  const curInv = (typeof activeInv === 'function') ? activeInv() : null;
+  const initialCenter = (curInv && curInv.detection && curInv.detection.centroid) ? curInv.detection.centroid : ((curInv && curInv.originCoords) ? curInv.originCoords : [19.420, 71.330]);
+  const initialZoom = (curInv && curInv.detection) ? 7 : 6;
+
+  missionMap = L.map('missionMap', { attributionControl: false, zoomControl: true, maxZoom: 19 }).setView(initialCenter, initialZoom);
   
   const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     maxNativeZoom: 19,
@@ -11296,6 +11579,18 @@ function postRenderHooks() {
   } catch(e) {
     console.error('Error in postRenderHooks:', e);
   }
+}
+
+// Load saved investigations from localStorage or initialize demo mission
+const hasStoredInvs = loadInvestigationsFromStorage();
+if(!hasStoredInvs && investigations.length === 0) {
+  loadDemoMission();
+}
+
+// Restore saved active section if user was previously in app
+const savedSection = (typeof localStorage !== 'undefined') ? localStorage.getItem('oceantrace_current_section') : null;
+if(savedSection) {
+  currentSection = savedSection;
 }
 
 // Initialize User UI immediately on load
