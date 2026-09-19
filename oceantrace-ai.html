@@ -3766,6 +3766,13 @@ function loadInvestigationsFromStorage() {
             const num = parseInt(m[1], 10);
             if(num >= missionCounter) missionCounter = num + 1;
           }
+          // Repair vessel tracks if loaded from legacy storage with inland/straight paths
+          if(inv.ais && inv.ais.vessels && inv.ais.vessels.length > 0) {
+            const needsRepair = inv.ais.vessels.some(v => !v.track || v.track.length < 2 || v.track.some(p => p[2] > 73.5 && p[1] > 17.0));
+            if(needsRepair) {
+              runAIS(inv);
+            }
+          }
         });
         return true;
       }
@@ -4520,21 +4527,36 @@ function runAIS(inv) {
     const isPrime = (idx === 0) || (distKm <= 0.5) || (v.score && v.score >= 90) || (v.status && v.status.includes('HIGH'));
 
     // Compute authentic geospatial trajectory with realistic maritime routing
-    // Use actual shipping lane waypoints per sector, not a straight bearing line
     const cpaPoint = isPrime ? [origin[0], origin[1]] : destPoint(origin[0], origin[1], (fairwayHeading + 90) % 360, distKm);
-    
-    // Get sector-specific shipping lane waypoints for realistic track shape
-    const laneWaypoints = getShippingLaneWaypoints(sec, origin, cpaPoint, fairwayHeading);
-    
-    // Build the track by interpolating along these realistic waypoints
-    const sampleT = [-48, -36, -24, -12, 0, 6, 12];
-    v.track = sampleT.map(t => {
-      const dt = t - cpaT;
-      const distKm2 = speedKmH * dt;
-      // Walk along the waypoint path for realistic curved route
-      const p = interpAlongWaypoints(laneWaypoints, cpaPoint, distKm2, speedKmH);
-      return [t, +p[0].toFixed(4), +p[1].toFixed(4)];
-    });
+
+    // Look for pre-configured authentic track (from item or TANKER_FLEET)
+    let authenticTrack = item.track;
+    if(!authenticTrack && typeof TANKER_FLEET !== 'undefined') {
+      const matched = TANKER_FLEET.find(tf => tf.mmsi === item.mmsi || tf.name === item.name);
+      if(matched && matched.track) authenticTrack = matched.track;
+    }
+
+    if(authenticTrack && authenticTrack.length > 0) {
+      if(!sec || sec.key === 'mumbai_high' || (Math.abs(origin[0] - 19.1) < 2.5 && Math.abs(origin[1] - 70.8) < 2.5)) {
+        // Use exact authentic Arabian Sea navigation track (curves into Mumbai Anchorage / Vadinar / Cochin)
+        v.track = authenticTrack.map(p => [...p]);
+      } else {
+        // Adapt authentic trajectory anchored to this sector's calculated origin locus
+        const dLat = origin[0] - 19.10;
+        const dLon = origin[1] - 70.86;
+        v.track = authenticTrack.map(([t, la, lo]) => [t, +(la + dLat).toFixed(4), +(lo + dLon).toFixed(4)]);
+      }
+    } else {
+      // Procedural curved shipping lane route for other global sectors
+      const laneWaypoints = getShippingLaneWaypoints(sec, origin, cpaPoint, fairwayHeading);
+      const sampleT = [-48, -36, -24, -12, 0, 6, 12];
+      v.track = sampleT.map(t => {
+        const dt = t - cpaT;
+        const distKm2 = speedKmH * dt;
+        const p = interpAlongWaypoints(laneWaypoints, cpaPoint, distKm2, speedKmH);
+        return [t, +p[0].toFixed(4), +p[1].toFixed(4)];
+      });
+    }
 
     const spatial = Math.max(0, Math.min(25, Math.round(25 - distKm * 0.9)));
     const temporal = Math.max(0, Math.min(25, Math.round(25 - Math.abs(cpaT - spillTime) * 1.6)));
@@ -5081,7 +5103,7 @@ function renderAISIntelligenceCenter() {
         <button class="cat2-filter-btn ${aisCenterFilter==='tanker'?'active':''}" onclick="setAISCenterFilter('tanker')">🛢 Crude Tankers</button>
       </div>
       <div>
-        <button class="btn sm primary" onclick="quickLaunchDemo()" style="gap:6px;">
+        <button class="btn sm primary" onclick="openTacticalMap()" style="gap:6px;">
           🗺️ Open Tactical Mission Map →
         </button>
       </div>
@@ -5406,21 +5428,42 @@ function executeICGDispatch() {
 }
 
 function openTacticalMap() {
+  let inv = activeInv();
+  if(!inv) {
+    if(investigations.length > 0) {
+      inv = investigations[0];
+      activeId = inv.id;
+    } else {
+      loadDemoMission();
+      inv = activeInv();
+    }
+  }
+
+  // Ensure full pipeline is computed so tactical map displays all layers
+  if(inv) {
+    if(!inv.detection) runDetection(inv);
+    if(!inv.drift) runTrace(inv);
+    if(!inv.ais || !inv.ais.vessels || inv.ais.vessels.length === 0) runAIS(inv);
+  }
+
   setSection('mission-control');
-  setTab('evidence');
+  setTab('candidates');
+
   setTimeout(() => {
     if(!missionMap) initMap();
     if(missionMap) {
-      const inv = activeInv();
+      missionMap.invalidateSize(true);
       const center = (inv && inv.drift && inv.drift.origin) ? inv.drift.origin
                    : (inv && inv.detection && inv.detection.centroid) ? inv.detection.centroid
-                   : (inv && inv.originCoords) ? inv.originCoords
                    : [19.420, 71.330];
-      missionMap.flyTo(center, 8, { duration: 1.2 });
-      renderMapOverlays();
+      missionMap.setView(center, 7);
+      renderMapLayers();
     }
-  }, 300);
-  toast("Tactical Map", "Mission Control map loaded with vessel tracks and spill data", "ok");
+    const mapEl = document.getElementById('missionMap');
+    if(mapEl) mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 250);
+
+  toast("Tactical Map Active", "Mission Control tactical map displaying slick, backdrift & vessel tracks", "ok");
 }
 
 function benchmarkAISScoring() {
