@@ -3335,7 +3335,7 @@ function toggleCopilotChat() {
   const drawer = document.getElementById('oceantraceCopilotDrawer');
   if(drawer) drawer.classList.toggle('hidden', !copilotState.isOpen);
   if(copilotState.isOpen) {
-    const input = document.getElementById('copilotInput');
+    const input = document.getElementById('floatingCopilotInput');
     if(input) input.focus();
     scrollCopilotToBottom();
   }
@@ -3399,13 +3399,13 @@ function handleCopilotKey(e) {
 }
 
 function sendCopilotPrompt(promptText) {
-  const input = document.getElementById('copilotInput');
+  const input = document.getElementById('floatingCopilotInput');
   if(input) input.value = promptText;
   sendCopilotMessage();
 }
 
 function sendCopilotMessage() {
-  const input = document.getElementById('copilotInput');
+  const input = document.getElementById('floatingCopilotInput');
   if(!input) return;
   const text = input.value.trim();
   if(!text) return;
@@ -4458,9 +4458,13 @@ function go(view) {
 
 let currentSection = 'mission-control';
 function setSection(sec) {
-  currentSection = sec;
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.sec === sec));
-  renderSection();
+  try {
+    currentSection = sec;
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.sec === sec));
+    renderSection();
+  } catch(e) {
+    console.error('Error switching section to ' + sec + ':', e);
+  }
 }
 
 function renderSection() {
@@ -4685,6 +4689,19 @@ function renderMissionControl() {
   const vessels = investigations.reduce((s, i) => s + (i.ais ? i.ais.vessels.length : 0), 0);
 
   let html = `
+  <!-- Mission Control Tactical Header -->
+  <div class="segformer-header" style="margin-bottom:12px; border-left:4px solid var(--blue-primary);">
+    <div class="segformer-title">
+      <h2><span>🛰️</span> Mission Control · Tactical Operations</h2>
+      <p>Geospatial Situation Room · Real-time Sentinel-1 SAR &amp; AIS Maritime Surveillance</p>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <span class="badge primary">Command Active</span>
+      <span class="badge success" style="background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0;">● AIS Live Feeds</span>
+      <button class="btn sm" onclick="setSection('segformer')" style="border-color:var(--blue-border); color:var(--blue-primary); background:#ffffff; font-weight:600;">🔬 Open Image Detection Studio →</button>
+    </div>
+  </div>
+
   <div class="metrics-row">
     <div class="metric-box">
       <b>${investigations.length || 1}</b>
@@ -4739,11 +4756,11 @@ function renderMissionControl() {
       <div style="display:flex; align-items:center; gap:12px;">
         <div style="width:36px; height:36px; border-radius:6px; background:var(--blue-primary); color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px;">🔬</div>
         <div>
-          <div style="font-size:13px; font-weight:700; color:var(--navy-dark);">Image Detection Studio (SegFormer-B2 &amp; DeepLabV3+)</div>
-          <div style="font-size:11.5px; color:var(--text-dim);">Category 1: Image Ingestion &amp; Spill Characteristics · Category 2: Copernicus Sentinel-1 Recon &amp; Forensic AIS Attribution.</div>
+          <div style="font-size:13px; font-weight:700; color:var(--navy-dark);">Vision AI Studio Integration</div>
+          <div style="font-size:11.5px; color:var(--text-dim);">Inspect SAR radar, run SegFormer-B2 / DeepLabV3+ segmentation, or explore Indian Ocean forensic incidents.</div>
         </div>
       </div>
-      <button class="btn primary sm" onclick="setSection('segformer')">Open Image Detection Studio →</button>
+      <button class="btn primary sm" onclick="setSection('segformer')">Launch Image Detection Studio →</button>
     </div>
   </div>
 
@@ -5422,8 +5439,8 @@ function printReportOnly() {
   </div>
 
   <div class="copilot-input-bar">
-    <textarea id="copilotInput" placeholder="Ask anything about oil spills, AIS tracks, ocean physics, or MARPOL law..." rows="1" onkeydown="handleCopilotKey(event)"></textarea>
-    <button class="copilot-send-btn" onclick="sendCopilotMessage()" id="copilotSendBtn">➤</button>
+    <textarea id="floatingCopilotInput" placeholder="Ask anything about oil spills, AIS tracks, ocean physics, or MARPOL law..." rows="1" onkeydown="handleCopilotKey(event)"></textarea>
+    <button class="copilot-send-btn" onclick="sendCopilotMessage()" id="floatingCopilotSendBtn">➤</button>
   </div>
 </div>
 
@@ -6481,7 +6498,7 @@ function renderCategory1View() {
   const res = segformerState.results;
   const modelName = segformerState.aiModel === 'segformer' ? 'SegFormer-B2' : 'DeepLabV3+';
 
-  setTimeout(renderAllBoatCanvases, 20);
+  
   return `
   <div class="view-fade-in">
   <!-- Category 1: Ingestion & Control Strip (Full-Width Zero-Waste Layout) -->
@@ -10562,11 +10579,15 @@ function renderProfile() {
    POST RENDER HOOKS & BOOT
 ===================================================================================== */
 function postRenderHooks() {
-  if(currentSection === 'mission-control' && activeId) {
-    initMap();
-    primeCopilot();
-  } else if(currentSection === 'segformer') {
-    initSegFormerStudio();
+  try {
+    if(currentSection === 'mission-control' && activeId) {
+      initMap();
+      primeCopilot();
+    } else if(currentSection === 'segformer') {
+      initSegFormerStudio();
+    }
+  } catch(e) {
+    console.error('Error in postRenderHooks:', e);
   }
 }
 
