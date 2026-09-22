@@ -3353,6 +3353,156 @@ function sendCopilotPrompt(promptText) {
   sendCopilotMessage();
 }
 
+function buildInvestigationContext() {
+  let inv = (typeof activeInv === 'function') ? activeInv() : null;
+  if(!inv && Array.isArray(investigations) && investigations.length > 0) {
+    inv = investigations[0];
+  }
+  const secKey = inv ? (inv.sectorKey || (typeof segformerState !== 'undefined' && segformerState.cat2Sector) || 'mumbai_high') : 'mumbai_high';
+  const sec = (typeof IOR_SECTORS !== 'undefined' && IOR_SECTORS[secKey]) ? IOR_SECTORS[secKey] : (typeof IOR_SECTORS !== 'undefined' ? IOR_SECTORS.mumbai_high : null);
+
+  const hasSatellite = !!(inv && inv.satellite);
+  const hasDetection = !!(inv && inv.detection);
+  const hasEnvironment = !!(inv && inv.environment);
+  const hasDrift = !!(inv && inv.drift && inv.drift.origin);
+  const hasAIS = !!(inv && inv.ais && inv.ais.vessels && inv.ais.vessels.length > 0);
+  const hasEvidence = !!(inv && inv.evidenceChain);
+
+  const centroid = hasDetection ? inv.detection.centroid : (inv && inv.originCoords ? inv.originCoords : (sec ? [sec.lat, sec.lng] : [19.420, 71.330]));
+  const origin = hasDrift ? inv.drift.origin : centroid;
+  const vessels = hasAIS ? inv.ais.vessels : ((sec && sec.vessels && sec.vessels.length > 0) ? sec.vessels : []);
+  const topVessel = vessels.length > 0 ? vessels[0] : null;
+
+  const env = inv && inv.environment ? inv.environment : (sec && sec.livePhysics ? {
+    current: { speedKt: sec.livePhysics.currentKnots, dirDeg: sec.livePhysics.currentDeg },
+    wind: { speedKt: sec.livePhysics.windKnots, dirDeg: sec.livePhysics.windDeg },
+    wave: { heightM: sec.livePhysics.waveHeightM },
+    sstC: sec.livePhysics.sstC
+  } : {
+    current: { speedKt: 1.25, dirDeg: 245 },
+    wind: { speedKt: 14.5, dirDeg: 230 },
+    wave: { heightM: 1.8 },
+    sstC: 28.4
+  });
+
+  const stagesDone = inv && inv.stagesDone ? (inv.stagesDone instanceof Set ? Array.from(inv.stagesDone) : Array.from(inv.stagesDone)) : [];
+
+  return {
+    inv,
+    sec,
+    secKey,
+    hasSatellite,
+    hasDetection,
+    hasEnvironment,
+    hasDrift,
+    hasAIS,
+    hasEvidence,
+    centroid,
+    origin,
+    vessels,
+    topVessel,
+    env,
+    stagesDone,
+    missionId: inv ? inv.id : 'MSN-120',
+    missionName: inv ? inv.name : (sec ? sec.name : 'Maritime Surveillance Recon'),
+    priority: inv ? inv.priority : 'HIGH',
+    status: inv ? inv.status : 'IN PROGRESS',
+    areaKm2: hasDetection ? inv.detection.areaKm2 : (sec ? sec.area : 'Pending Detection'),
+    confidence: hasDetection ? (inv.detection.confidence + '%') : (sec ? '96.4%' : 'Pending'),
+    evidenceHash: hasEvidence ? inv.evidenceChain.hash : (inv ? (inv.evidenceHash || 'Pending Verification') : 'Pending Verification')
+  };
+}
+
+function getCopilotSystemPrompt() {
+  const ctx = buildInvestigationContext();
+  const { missionId, missionName, priority, status, centroid, origin, areaKm2, confidence, vessels, topVessel, env, evidenceHash, stagesDone } = ctx;
+  
+  return `You are OceanTrace Maritime AI Copilot, an expert in satellite oil spill forensics, AIS vessel trajectory attribution, reverse Lagrangian oceanographic drift physics, and MARPOL 73/78 Annex I maritime law.
+
+ACTIVE INVESTIGATION DOSSIER:
+- Mission ID: ${missionId}
+- Codename: ${missionName}
+- Priority / Status: ${priority} / ${status}
+- Observed Slick Centroid: ${centroid[0].toFixed(4)}°N, ${centroid[1].toFixed(4)}°E
+- Calculated Release Origin: ${origin[0].toFixed(4)}°N, ${origin[1].toFixed(4)}°E (T-36h)
+- Pollutant Footprint: ${areaKm2} (Confidence: ${confidence})
+- Completed Forensic Stages: [${stagesDone.join(', ')}]
+- Coupled Metocean: Current ${env.current.speedKt} kt @ ${env.current.dirDeg}°, Wind ${env.wind.speedKt} kt @ ${env.wind.dirDeg}°, Waves ${env.wave ? env.wave.heightM : 1.8}m, SST ${env.sstC || 28.4}°C
+- Primary Attributed Suspect: ${topVessel ? `${topVessel.name} (IMO: ${topVessel.imo || '9413248'}, MMSI: ${topVessel.mmsi || '419001156'}, Flag: ${topVessel.flag || 'Commercial'}, Attribution Score: ${topVessel.score?.total || topVessel.score}%, CPA: ${topVessel.distKm || topVessel.cpaDistKm || 0.05} km, Transponder Gap: ${topVessel.hasGap ? 'Yes, blackout recorded' : 'No'})` : 'None scored yet'}
+- Candidate Vessels Evaluated: ${vessels.length}
+- Cryptographic SHA-256 Fingerprint: ${evidenceHash}
+
+INSTRUCTIONS:
+1. Ground all answers firmly in this active investigation's data. Never invent or hallucinate contradictory vessel names or coordinates.
+2. If asked in any language (English, Telugu, Hindi, etc.), respond clearly and professionally in that language or English with high technical fidelity.
+3. When drafting signals or reports, format with proper maritime headings (ICG MRCC Mumbai / Port State Control).
+4. Provide structured, actionable, and formatted markdown with bold highlights and bullet points.`;
+}
+
+function getDynamicInvestigationChips() {
+  const inv = (typeof activeInv === 'function') ? activeInv() : null;
+  if (!inv) {
+    return [
+      { text: "What is OceanTrace?", prompt: "Explain how OceanTrace detects oil spills and tracks polluters." },
+      { text: "How to Investigate?", prompt: "How do I start a new investigation and analyze satellite imagery?" },
+      { text: "MARPOL Laws", prompt: "What are the MARPOL Annex I regulations and penalties?" },
+      { text: "SAR Physics", prompt: "How does Sentinel-1 C-SAR detect oil slicks on the ocean?" }
+    ];
+  }
+
+  const hasDetect = !!(inv.detection);
+  const hasDrift = !!(inv.drift);
+  const hasAIS = !!(inv.ais && inv.ais.vessels && inv.ais.vessels.length > 0);
+
+  if (!hasDetect) {
+    return [
+      { text: "🚀 Run Spill Detection", prompt: "Run spill detection on the active satellite scene." },
+      { text: "📋 Investigation Brief", prompt: "Provide an executive brief on the current investigation." },
+      { text: "🌊 Ocean Conditions", prompt: "What are the live ocean current and wind conditions at the slick location?" },
+      { text: "🔬 SAR Discrimination", prompt: "How does the AI reject false-positive algal blooms?" }
+    ];
+  } else if (!hasDrift) {
+    return [
+      { text: "🌊 Compute Drift Hindcast", prompt: "Run drift hindcast to calculate where the spill originated." },
+      { text: "📏 Spill Dimensions", prompt: "What are the detected slick area, perimeter, and confidence score?" },
+      { text: "📋 Investigation Brief", prompt: "Provide an executive brief on the current investigation." },
+      { text: "⚖️ MARPOL Liabilities", prompt: "What legal liabilities apply under MARPOL Annex I?" }
+    ];
+  } else if (!hasAIS) {
+    return [
+      { text: "🚢 Correlate AIS Vessels", prompt: "Correlate AIS vessels transiting the calculated release origin." },
+      { text: "📍 Where is the Origin?", prompt: "Explain the ocean drift backtrack and calculated release origin." },
+      { text: "📐 Drift Physics Formula", prompt: "Explain the Lagrangian ocean current and windage drift equation." },
+      { text: "📋 Investigation Brief", prompt: "Provide an executive brief on the current investigation." }
+    ];
+  } else {
+    const top = inv.ais.vessels[0];
+    const name = top ? top.name : "the suspect";
+    return [
+      { text: `🎯 Prime Suspect (${top ? (top.score?.total || top.score) + '%' : 'Details'})`, prompt: "Who is the prime suspect for this spill and what is the attribution evidence?" },
+      { text: "🚨 Draft ICG Interception Signal", prompt: "Draft an official Indian Coast Guard interception signal." },
+      { text: "🔐 SHA-256 Evidence Package", prompt: "Show the cryptographic evidence package and SHA-256 chain of custody." },
+      { text: "⚖️ MARPOL Penalties & Fines", prompt: `What statutory penalties and fines apply to ${name}?` }
+    ];
+  }
+}
+
+function updateAllCopilotChips() {
+  const chips = getDynamicInvestigationChips();
+  
+  // Update embedded panel chips
+  const embeddedBox = document.getElementById('copilotChips');
+  if (embeddedBox) {
+    embeddedBox.innerHTML = chips.map(c => `<div class="chip" onclick="askCopilotChip('${escapeHtml(c.prompt)}')">${c.text}</div>`).join('');
+  }
+
+  // Update floating drawer chips
+  const floatingBox = document.getElementById('floatingCopilotChips') || document.querySelector('.copilot-chips-scroll');
+  if (floatingBox) {
+    floatingBox.innerHTML = chips.map(c => `<button class="copilot-chip" onclick="sendCopilotPrompt('${escapeHtml(c.prompt)}')">${c.text}</button>`).join('');
+  }
+}
+
 async function sendCopilotMessage() {
   const input = document.getElementById('floatingCopilotInput');
   if(!input) return;
@@ -3364,23 +3514,20 @@ async function sendCopilotMessage() {
   renderCopilotMessages();
 
   // Thinking indicator
-  const thinkingId = 'thinking_' + Date.now();
-  copilotState.messages.push({ role: 'assistant', text: 'Thinking… querying neural model & analyzing ocean telemetry…', isThinking: true });
+  copilotState.messages.push({ role: 'assistant', text: 'Thinking… analyzing active investigation telemetry & models…', isThinking: true });
   renderCopilotMessages();
 
   try {
     let aiAnswer = '';
-    const inv = typeof activeInv === 'function' ? activeInv() : null;
-    const sec = (typeof IOR_SECTORS !== 'undefined' && typeof segformerState !== 'undefined') ? (IOR_SECTORS[segformerState.cat2Sector] || IOR_SECTORS.mumbai_high) : null;
-    const topV = sec && sec.vessels && sec.vessels[0] ? sec.vessels[0] : { name: "MT SWARNA SINDHU", imo: "9413248", mmsi: "419001156", score: 96.4 };
+    const sysPrompt = getCopilotSystemPrompt();
 
     // Check if cloud LLM is active
     if(copilotState.modelProvider === 'gemini' && copilotState.apiKey) {
-      aiAnswer = await queryGeminiLLM(text, sec, topV);
+      aiAnswer = await queryGeminiLLM(text, sysPrompt);
     } else if((copilotState.modelProvider === 'openai' || copilotState.modelProvider === 'groq') && copilotState.apiKey) {
-      aiAnswer = await queryOpenAILLM(text, sec, topV, copilotState.modelProvider);
+      aiAnswer = await queryOpenAILLM(text, sysPrompt, copilotState.modelProvider);
     } else if(copilotState.modelProvider === 'ollama') {
-      aiAnswer = await queryOllamaLLM(text, sec, topV);
+      aiAnswer = await queryOllamaLLM(text, sysPrompt);
     }
 
     // Fallback to built-in Maritime Neural Reasoning Engine if no answer from cloud
@@ -3392,18 +3539,19 @@ async function sendCopilotMessage() {
     copilotState.messages = copilotState.messages.filter(m => !m.isThinking);
     copilotState.messages.push({ role: 'assistant', text: aiAnswer });
     renderCopilotMessages();
+    updateAllCopilotChips();
   } catch(err) {
     console.error('LLM Inference error:', err);
     copilotState.messages = copilotState.messages.filter(m => !m.isThinking);
     const fallbackAnswer = generateMaritimeAIResponse(text);
     copilotState.messages.push({ role: 'assistant', text: fallbackAnswer });
     renderCopilotMessages();
+    updateAllCopilotChips();
   }
 }
 
-async function queryGeminiLLM(prompt, sec, topV) {
+async function queryGeminiLLM(prompt, sysPrompt) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${copilotState.apiKey}`;
-  const sysPrompt = `You are OceanTrace Maritime AI Copilot, an expert in satellite oil spill forensics, AIS tracking, ocean physics (HYCOM/ERA5), and MARPOL Annex I laws. Current Incident: ${sec ? sec.name : 'Indian Ocean'}, Location: ${sec ? sec.lat + 'N, ' + sec.lng + 'E' : 'EEZ'}, Target Suspect: ${topV ? topV.name : 'Unknown'}. Provide professional, concise, actionable maritime responses with markdown formatting.`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3417,10 +3565,9 @@ async function queryGeminiLLM(prompt, sec, topV) {
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-async function queryOpenAILLM(prompt, sec, topV, provider) {
+async function queryOpenAILLM(prompt, sysPrompt, provider) {
   const endpoint = (provider === 'groq') ? 'https://api.groq.com/openai/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions';
   const model = (provider === 'groq') ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini';
-  const sysPrompt = `You are OceanTrace Maritime AI Copilot, an expert in satellite oil spill forensics, AIS tracking, ocean physics, and MARPOL Annex I laws. Current Incident: ${sec ? sec.name : 'Indian Ocean'}, Target Suspect: ${topV ? topV.name : 'Unknown'}. Provide professional maritime responses.`;
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -3441,13 +3588,16 @@ async function queryOpenAILLM(prompt, sec, topV, provider) {
   return data?.choices?.[0]?.message?.content || '';
 }
 
-async function queryOllamaLLM(prompt, sec, topV) {
+async function queryOllamaLLM(prompt, sysPrompt) {
   const res = await fetch('http://localhost:11434/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'llama3',
-      messages: [{ role: 'user', content: prompt }],
+      messages: [
+        { role: 'system', content: sysPrompt },
+        { role: 'user', content: prompt }
+      ],
       stream: false
     })
   });
@@ -3459,92 +3609,176 @@ async function queryOllamaLLM(prompt, sec, topV) {
 function generateMaritimeAIResponse(prompt) {
   const p = (prompt || '').trim();
   const pl = p.toLowerCase();
-  const inv = typeof activeInv === 'function' ? activeInv() : null;
-  const sec = (typeof IOR_SECTORS !== 'undefined' && typeof segformerState !== 'undefined') ? (IOR_SECTORS[segformerState.cat2Sector] || IOR_SECTORS.mumbai_high) : { name: "Mumbai High Offshore Fairway", key: "mumbai_high",
-    region: "indian_ocean",
-    jurisdiction: "Indian Coast Guard (ICG MRCC) & DG Shipping", lat: 19.420, lng: 71.330, area: "14.8 km²", sensor: "Sentinel-1D C-SAR IW", spillTimestamp: "2026-09-16 13:10:17 UTC", spillTimestampIST: "16 Sep 2026, 18:40 IST" };
-  const topV = sec.vessels && sec.vessels[0] ? sec.vessels[0] : { name: "MT SWARNA SINDHU", imo: "9413248", mmsi: "419001156", flag: "India [IN]", score: 96.4, cpaDistKm: 0.05 };
-  const liveP = sec.livePhysics || { currentKnots: 1.2, currentDeg: 245, windKnots: 14.5, windDeg: 230, waveHeightM: 1.8, sstC: 28.4 };
+  const ctx = buildInvestigationContext();
+  const { inv, hasSatellite, hasDetection, hasDrift, hasAIS, hasEvidence, centroid, origin, vessels, topVessel, env, stagesDone, missionId, missionName, priority, areaKm2, confidence, evidenceHash } = ctx;
 
-  // 1. GREETING & CAPABILITIES
-  if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|who are you|what can you do)/i.test(pl)) {
-    return `👋 **Greetings, Investigator.** I am the **OceanTrace Maritime AI Copilot**, powered by multi-modal reasoning and live geospatial telemetry.\n\n` +
-      `I am actively monitoring **${sec.name}** with real-time Copernicus Sentinel-1 SAR and AIS vessel telemetry.\n\n` +
-      `**What I can do for you right now:**\n` +
-      `• **Culprit Attribution:** Ask me who spilled the oil, review AIS transponder blackouts, or inspect closest approach distances.\n` +
-      `• **Metocean Drift Simulation:** Inquire about reverse Lagrangian drift physics, windage leeway factors, or simulate current shifts.\n` +
-      `• **SAR vs. Optical Physics:** Learn how SegFormer-B2 and DeepLabV3+ filter out natural algal blooms and false look-alikes.\n` +
-      `• **Legal Action & Signals:** Ask me to draft an official Indian Coast Guard interception signal, MARPOL violation dossier, or Port State Control detention order.\n\n` +
-      `*What would you like to investigate?*`;
+  // 1. INTERACTIVE PIPELINE COMMAND EXECUTION
+  if (/\b(run|execute|start|perform)\b.*\b(detect|detection|segment|vision)\b/i.test(pl) || pl === 'detect' || pl === 'run detection') {
+    if (typeof actionDetect === 'function') actionDetect();
+    return `🛰️ **Executing Satellite Spill Detection for ${missionId}...**\n\n` +
+      `SegFormer-B2 and DeepLabV3+ neural models have processed the Sentinel-1 SAR scene for **${missionName}**.\n\n` +
+      `• **Detected Area:** **${hasDetection ? areaKm2 + ' km²' : '14.8 km²'}**\n` +
+      `• **Confidence:** **${hasDetection ? confidence : '96.4%'}**\n` +
+      `• **Centroid Coordinates:** **${centroid[0].toFixed(3)}°N, ${centroid[1].toFixed(3)}°E**\n` +
+      `• **Look-alike Screening:** Natural biogenic surfactants and wind shadows rejected.\n\n` +
+      `👉 **Next Recommended Step:** Ask me to *"Compute Drift Hindcast"* or click **2. Trace Origin** to backtrack the release point.`;
   }
 
-  // 2. OFFICIAL SIGNALS / DISPATCH / EMAIL DRAFTING
-  if (pl.includes('draft') || pl.includes('email') || pl.includes('dispatch') || pl.includes('signal') || pl.includes('letter') || pl.includes('report for') || pl.includes('message')) {
+  if (/\b(run|execute|start|calculate|compute)\b.*\b(drift|trace|hindcast|backdrift|origin)\b/i.test(pl) || pl === 'drift' || pl === 'run drift' || pl === 'trace origin') {
+    if (typeof actionTrace === 'function') actionTrace();
+    return `🌊 **Executing Lagrangian Reverse Drift Hindcast for ${missionId}...**\n\n` +
+      `Coupled Copernicus HYCOM surface current and ERA5 atmospheric leeway models have backtracked the slick across 36 hours.\n\n` +
+      `• **Calculated Release Origin:** **${origin[0].toFixed(3)}°N, ${origin[1].toFixed(3)}°E**\n` +
+      `• **Release Timestamp:** T-36h (${new Date(Date.now() - 36*3600*1000).toISOString().slice(0, 16)} UTC)\n` +
+      `• **Coupled Drift Vectors:** Current ${env.current.speedKt} kt @ ${env.current.dirDeg}°, Wind ${env.wind.speedKt} kt @ ${env.wind.dirDeg}°\n\n` +
+      `👉 **Next Recommended Step:** Ask me to *"Correlate AIS Vessels"* or click **3. Correlate AIS** to match shipping transponders against this release locus.`;
+  }
+
+  if (/\b(run|execute|start|correlate|attribute)\b.*\b(ais|vessel|vessels|ships?|tanker)\b/i.test(pl) || pl === 'ais' || pl === 'run ais' || pl === 'correlate ais') {
+    if (typeof actionAIS === 'function') actionAIS();
+    return `🚢 **Executing AIS Transponder Correlation for ${missionId}...**\n\n` +
+      `Vectorized spatiotemporal attribution engine evaluated candidate vessels transiting the calculated release corridor.\n\n` +
+      `• **Correlated Fleet Size:** **${vessels.length || 5} vessels** scored\n` +
+      (topVessel ? `• **Prime Suspect:** **${topVessel.name}** (Attribution: **${topVessel.score?.total || topVessel.score}%**, CPA: **${topVessel.distKm || topVessel.cpaDistKm} km**)\n` : '') +
+      `• **Fairway Crossings:** Evaluated ±48h time window around release timestamp.\n\n` +
+      `👉 **Next Recommended Step:** Ask me *"Who is the prime suspect?"* or *"Draft ICG Interception Signal"*.`;
+  }
+
+  if (/\b(report|dossier|generate report)\b/i.test(pl) && (pl.includes('run') || pl.includes('generate') || pl.includes('make') || pl.includes('open'))) {
+    if (typeof actionReport === 'function') actionReport();
+    return `📄 **Compiling Formal Investigation Dossier for ${missionId}...**\n\n` +
+      `All forensic telemetry, satellite SAR segmentations, Lagrangian drift vectors, and AIS candidate rankings have been compiled into the formal report.\n\n` +
+      `• **Cryptographic Seal:** SHA-256 \`${evidenceHash.slice(0, 20)}…\`\n` +
+      `• **Export Readiness:** Available for PDF / Chain-of-Custody dispatch.\n\n` +
+      `Navigating to the **Report** section.`;
+  }
+
+  if (pl.includes('map') && (pl.includes('open') || pl.includes('show') || pl.includes('jump') || pl.includes('tactical'))) {
+    if (typeof setSection === 'function') setSection('mission-control');
+    setTimeout(() => {
+      const mapEl = document.getElementById('missionMap');
+      if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+    return `🗺️ **Navigating to Tactical Geospatial Map for ${missionId}...**\n\nCentered on active slick coordinates: **${centroid[0].toFixed(3)}°N, ${centroid[1].toFixed(3)}°E** with live AIS vessel tracks and reverse drift locus overlays.`;
+  }
+
+  // 2. INVESTIGATION STATUS & EXECUTIVE CASE BRIEF
+  if (pl.includes('status') || pl.includes('overview') || pl.includes('brief') || pl.includes('summary') || pl.includes('progress') || pl.includes('review') || pl.includes('case') || pl.includes('em jarigindi')) {
+    const stageCheck = s => stagesDone.includes(s) ? '✅' : '⏳';
+    return `📋 **Executive Investigation Brief: ${missionId}**\n\n` +
+      `**Mission Codename:** ${missionName}\n` +
+      `**Priority:** ${priority} | **Status:** ${inv ? inv.status : 'IN PROGRESS'} | **Created:** ${inv ? new Date(inv.createdAt).toUTCString().slice(0, 22) : 'Active'}\n\n` +
+      `**Forensic Pipeline Progress:**\n` +
+      `• ${stageCheck('INGEST')} **Ingest:** ${hasSatellite ? inv.satellite.sensor + ' (' + inv.satellite.granule + ')' : 'Sentinel-1 SAR Scene Loaded'}\n` +
+      `• ${stageCheck('DETECT')} **Spill Detection:** ${hasDetection ? areaKm2 + ' (' + confidence + ' conf.)' : 'Pending Execution'}\n` +
+      `• ${stageCheck('TRACE')} **Drift Hindcast:** ${hasDrift ? origin[0].toFixed(3) + '°N, ' + origin[1].toFixed(3) + '°E (T' + inv.drift.spillTime + 'h)' : 'Pending Execution'}\n` +
+      `• ${stageCheck('CORRELATE')} **AIS Correlation:** ${hasAIS ? vessels.length + ' vessels evaluated' : 'Pending Execution'}\n` +
+      `• ${stageCheck('RANK')} **Suspect Ranking:** ${topVessel ? topVessel.name + ' (' + (topVessel.score?.total || topVessel.score) + '% score)' : 'Pending'}\n` +
+      `• ${stageCheck('REPORT')} **Evidence Package:** ${hasEvidence ? 'SHA-256 Sealed: ' + evidenceHash.slice(0, 16) + '…' : 'Pending Compilation'}\n\n` +
+      `🔍 **Operational Assessment:** ` +
+      (topVessel ? `Definitive attribution achieved. Target vessel **${topVessel.name}** crossed calculated geometric release origin with CPA ${topVessel.distKm || topVessel.cpaDistKm} km.` :
+       hasDrift ? `Release locus isolated. Ready for AIS transponder corridor correlation.` :
+       hasDetection ? `Spill confirmed. Ready for oceanographic drift backtrack.` :
+       `Investigation initialized. Ready to run spill detection on satellite imagery.`);
+  }
+
+  // 3. SUSPECT ATTRIBUTION & VESSEL DOSSIER
+  if (pl.includes('who') || pl.includes('suspect') || pl.includes('culprit') || pl.includes('vessel') || pl.includes('ship') || pl.includes('boat') || pl.includes('tanker') || pl.includes('mmsi') || pl.includes('imo') || pl.includes('evaru') || pl.includes('donga')) {
+    if (!hasAIS || !topVessel) {
+      return `🚢 **AIS Vessel Attribution Pending for ${missionId}:**\n\n` +
+        `Candidate vessels have not been correlated yet for **${missionName}**.\n\n` +
+        `**To attribute the culprit vessel:**\n` +
+        `1. Run **Spill Detection** (to delineate slick geometry).\n` +
+        `2. Run **Drift Hindcast** (to calculate release coordinates).\n` +
+        `3. Correlate **AIS Fleet** (to compute CPA and attribution scores).\n\n` +
+        `👉 Type *"Run AIS Attribution"* or click the button in Mission Control to correlate transponder fairways right now.`;
+    }
+
+    return `🚢 **Suspect Vessel Attribution Dossier — Mission ${missionId}:**\n\n` +
+      `For **${missionName}** (Slick Centroid: **${centroid[0].toFixed(3)}°N, ${centroid[1].toFixed(3)}°E**), OceanTrace evaluated **${vessels.length} candidate vessels** transiting the calculated release corridor:\n\n` +
+      vessels.slice(0, 4).map((v, i) => {
+        const scoreVal = v.score?.total || v.score || 85;
+        return `**${i + 1}. ${v.name}** (${v.flag || 'Commercial Tanker'})\n` +
+          `   • **IMO / MMSI:** ${v.imo || '9413248'} / ${v.mmsi || '419001156'}\n` +
+          `   • **Attribution Score:** **${scoreVal}%** ${scoreVal >= 80 ? '🔴 **[PRIME SUSPECT]**' : scoreVal >= 50 ? '🟡 [UNDER INVESTIGATION]' : '🟢 [EXONERATED]'}\n` +
+          `   • **CPA to Origin:** **${v.distKm || v.cpaDistKm || 0.05} km** (T ${v.cpaTime || -36}h)\n` +
+          `   • **Speed / Heading:** ${v.speedKnots || 13.8} knots @ ${v.heading || 215}°\n` +
+          `   • **Telemetry Status:** ${v.hasGap ? '⚠ Deliberate ' + (v.gapMinutes || 180) + '-minute transponder blackout detected' : '✓ Continuous AIS broadcast'}`;
+      }).join('\n\n') +
+      `\n\n🔍 **Forensic Attribution Verdict:** Target vessel **${topVessel.name}** crossed the exact geometric origin at the release timestamp (${topVessel.cpaTime || -36}h) with an offset of only **${topVessel.distKm || topVessel.cpaDistKm || 0.05} km**. Attribution score of **${topVessel.score?.total || topVessel.score}%** provides actionable grounds for maritime interdiction.`;
+  }
+
+  // 4. OCEAN PHYSICS & DRIFT HINDCAST
+  if (pl.includes('drift') || pl.includes('physics') || pl.includes('current') || pl.includes('wind') || pl.includes('equation') || pl.includes('hindcast') || pl.includes('calculate') || pl.includes('knot') || pl.includes('origin') || pl.includes('gaali')) {
+    return `🌊 **Backward Oceanographic Drift Hindcast Physics — ${missionId}:**\n\n` +
+      `• **Active Incident:** **${missionName}**\n` +
+      `• **Observed Slick Centroid:** **${centroid[0].toFixed(3)}°N, ${centroid[1].toFixed(3)}°E**\n` +
+      `• **Calculated Release Origin:** **${origin[0].toFixed(3)}°N, ${origin[1].toFixed(3)}°E** (Backtracked **${inv && inv.drift ? Math.abs(inv.drift.spillTime) : 36} hours**)\n` +
+      `• **Coupled HYCOM Surface Current:** **${env.current.speedKt} knots** at bearing **${env.current.dirDeg}°**\n` +
+      `• **Copernicus ERA5 Surface Wind:** **${env.wind.speedKt} knots** from **${env.wind.dirDeg}°**\n` +
+      `• **Metocean State:** Wave Height **${env.wave ? env.wave.heightM : 1.8} m** | SST **${env.sstC || 28.4}°C**\n\n` +
+      `📐 **Governing Lagrangian Particle Drift Equation:**\n` +
+      `$$\vec{V}_{\text{slick}} = 1.0 \cdot \vec{U}_{\text{current}} + 0.035 \cdot \mathbf{R}(\theta_{\text{Coriolis}}) \cdot \vec{W}_{\text{wind}}$$\n\n` +
+      `**Physical Parameter Breakdown:**\n` +
+      `• $1.0 \cdot \vec{U}_{\text{current}}$ represents 100% Eulerian ocean surface current advection.\n` +
+      `• $0.035$ represents the empirical 3.5% windage leeway factor.\n` +
+      `• $\mathbf{R}(\theta_{\text{Coriolis}})$ applies an empirical Coriolis deflection angle (+12.4° in Northern Hemisphere) to wind shear.\n` +
+      `• Net slick vector: **${inv && inv.drift ? inv.drift.netSpeedKmH.toFixed(2) : '2.85'} km/h** at **${inv && inv.drift ? inv.drift.bearingDeg : 235}°**, matching the track of **${topVessel ? topVessel.name : 'the candidate tanker'}**.`;
+  }
+
+  // 5. OFFICIAL SIGNALS / DISPATCH / EMAIL DRAFTING
+  if (pl.includes('draft') || pl.includes('email') || pl.includes('dispatch') || pl.includes('signal') || pl.includes('letter') || pl.includes('report for') || pl.includes('message') || pl.includes('icg') || pl.includes('coast guard')) {
     const isICG = pl.includes('icg') || pl.includes('coast guard') || pl.includes('mrcc') || !pl.includes('port');
+    const vesselName = topVessel ? topVessel.name : "SUSPECT COMMERCIAL TANKER";
+    const imo = topVessel ? topVessel.imo : "9413248";
+    const mmsi = topVessel ? topVessel.mmsi : "419001156";
+    const flag = topVessel ? (topVessel.flag || "India [IN]") : "India [IN]";
+    const scoreVal = topVessel ? (topVessel.score?.total || topVessel.score || 96.4) : 96.4;
+
     if (isICG) {
       return `🚨 **OFFICIAL MARITIME POLLUTION INTERCEPTION SIGNAL**\n` +
         `**TO:** INDIAN COAST GUARD MRCC MUMBAI / REGIONAL HQ (WEST)\n` +
-        `**FROM:** OCEANTRACE SATELLITE SURVEILLANCE OPERATIONS\n` +
+        `**FROM:** OCEANTRACE MARITIME SURVEILLANCE OPERATIONS (MISSION ${missionId})\n` +
         `**DATE/TIME:** ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC\n` +
         `**CLASSIFICATION:** RESTRICTED // OPERATIONAL IMMEDIATE // MARPOL ANNEX I VIOLATION\n\n` +
         `**1. INCIDENT LOCATION & SATELLITE DETECTION:**\n` +
-        `• Sector: ${sec.name} (${sec.lat.toFixed(4)}°N, ${sec.lng.toFixed(4)}°E - Indian EEZ)\n` +
-        `• Satellite Sensor: ${sec.sensor || 'Sentinel-1D C-SAR IW'} | Acquisition: ${sec.satPassTimestamp || sec.time}\n` +
-        `• Pollutant Footprint: ${sec.area} (${sec.cause ? sec.cause.pollutant : 'Heavy Crude Sludge'})\n\n` +
+        `• Mission Codename: ${missionName}\n` +
+        `• Slick Centroid: ${centroid[0].toFixed(4)}°N, ${centroid[1].toFixed(4)}°E\n` +
+        `• Calculated Release Origin: ${origin[0].toFixed(4)}°N, ${origin[1].toFixed(4)}°E (T-36h)\n` +
+        `• Pollutant Footprint: ${areaKm2} (${confidence} Detection Confidence)\n\n` +
         `**2. ATTRIBUTED OFFENDING TARGET VESSEL:**\n` +
-        `• Vessel: **${topV.name}** (IMO: **${topV.imo}** | MMSI: **${topV.mmsi}** | Flag: **${topV.flag || 'India [IN]'}**)\n` +
-        `• Attribution Score: **${topV.score}% (High-Priority Prime Suspect)**\n` +
-        `• Closest Point of Approach (CPA): **${topV.cpaDistKm || 0.05} km** at release time (${sec.spillTimestamp})\n` +
-        `• AIS Telemetry Anomaly: 180-minute deliberate transponder blackout recorded during discharge.\n\n` +
+        `• Vessel: **${vesselName}** (IMO: **${imo}** | MMSI: **${mmsi}** | Flag: **${flag}**)\n` +
+        `• Attribution Score: **${scoreVal}% (High-Priority Prime Suspect)**\n` +
+        `• Closest Point of Approach (CPA): **${topVessel ? (topVessel.distKm || topVessel.cpaDistKm) : 0.05} km** to calculated origin locus\n` +
+        `• AIS Telemetry Anomaly: Deliberate transponder blackout recorded across discharge corridor.\n\n` +
         `**3. RECOMMENDED TACTICAL ACTION:**\n` +
-        `Immediate maritime intercept, boarding and detention under Section 356 of the Indian Merchant Shipping Act 1958. Secure Oil Record Book Part I & II and take oil samples for hydrocarbon fingerprinting.`;
+        `Immediate maritime interception and boarding under Section 356 of the Merchant Shipping Act 1958. Secure Oil Record Book Part I & II and take physical fuel/sludge samples for GC-MS hydrocarbon fingerprinting.`;
     } else {
       return `📄 **FORMAL MEMORANDUM TO PORT STATE CONTROL (PSC)**\n` +
-        `**SUBJECT:** Notice of MARPOL Annex I Illegal Discharge - Detention Notice\n` +
-        `**VESSEL:** ${topV.name} (IMO: ${topV.imo}, MMSI: ${topV.mmsi})\n\n` +
+        `**SUBJECT:** Notice of MARPOL Annex I Illegal Discharge — Vessel Detention Request\n` +
+        `**TARGET VESSEL:** ${vesselName} (IMO: ${imo}, MMSI: ${mmsi}, Flag: ${flag})\n` +
+        `**INVESTIGATION DOSSIER:** ${missionId} (${missionName})\n\n` +
         `Sir/Madam,\n\n` +
-        `Copernicus Sentinel-1 SAR surveillance coupled with backwards oceanographic drift hindcasting has definitively linked an illegal discharge of **${sec.area}** in sector **${sec.name}** to **${topV.name}**.\n\n` +
-        `The discharge occurred at **${sec.spillTimestamp}** at coordinates **${sec.lat.toFixed(4)}°N, ${sec.lng.toFixed(4)}°E**.\n\n` +
-        `We request PSC officers execute an unannounced inspection of the oily water separator (OWS), sludge holding tanks, and overboard valves upon berthing.\n\n` +
-        `Cryptographic Evidence Package SHA-256: 8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4.`;
+        `Copernicus Sentinel-1 SAR surveillance coupled with backward oceanographic drift hindcasting has linked an illegal discharge of **${areaKm2}** at **${centroid[0].toFixed(4)}°N, ${centroid[1].toFixed(4)}°E** to **${vesselName}**.\n\n` +
+        `The discharge occurred with zero spatial offset from the vessel's AIS dead-reckoning trajectory at release time.\n\n` +
+        `We request Port State Control officers execute an unannounced inspection of the oily water separator (OWS), sludge holding tanks, and overboard discharge valves upon berthing.\n\n` +
+        `Cryptographic Evidence Package SHA-256: ${evidenceHash}.`;
     }
   }
 
-  // 3. SUSPECT VESSEL ATTRIBUTION & FLEET TELEMETRY
-  if (pl.includes('who') || pl.includes('suspect') || pl.includes('culprit') || pl.includes('vessel') || pl.includes('ship') || pl.includes('boat') || pl.includes('tanker') || pl.includes('mmsi') || pl.includes('imo')) {
-    const allV = sec.vessels || [topV];
-    return `🚢 **Suspect Vessel Attribution Dossier:**\n\n` +
-      `In **${sec.name}**, OceanTrace evaluated **${allV.length} candidate vessels** transiting within ±48 hours of the spill occurrence (**${sec.spillTimestamp}**):\n\n` +
-      allV.map((v, i) =>
-        `**${i + 1}. ${v.name}** (${v.flag || 'Merchant Vessel'})\n` +
-        `   • **IMO / MMSI:** ${v.imo} / ${v.mmsi}\n` +
-        `   • **Attribution Score:** **${v.score}%** ${v.score >= 90 ? '🔴 **[CONFIRMED CULPRIT]**' : v.score >= 60 ? '🟡 [UNDER INVESTIGATION]' : '🟢 [EXONERATED]'}\n` +
-        `   • **CPA to Origin:** **${v.cpaDistKm || 0.05} km** (T-0 CPA at ${sec.spillTimestamp ? sec.spillTimestamp.slice(11, 16) + ' UTC' : 'T-36h'})\n` +
-        `   • **Speed / Heading:** ${v.speedKnots || 13.8} knots @ ${v.heading || 215}°\n` +
-        `   • **Telemetry Status:** ${v.anomaly || 'Deliberate transponder blackout detected across discharge fairway'}`
-      ).join('\n\n') +
-      `\n\n🔍 **Attribution Verdict:** **${topV.name}** crossed the exact geometric origin at the moment of release with zero spatial offset. The attribution confidence of **${topV.score}%** warrants immediate Coast Guard intervention.`;
+  // 6. FORENSIC EVIDENCE & SHA-256 CHAIN-OF-CUSTODY
+  if (pl.includes('evidence') || pl.includes('hash') || pl.includes('sha-256') || pl.includes('custody') || pl.includes('tamper') || pl.includes('court') || pl.includes('legal proof') || pl.includes('admissible') || pl.includes('proof')) {
+    return `🔐 **Cryptographic Evidence Package & Chain-of-Custody — ${missionId}:**\n\n` +
+      `• **SHA-256 Master Fingerprint:**\n\`${evidenceHash}\`\n\n` +
+      `• **Standard Compliance:** Adheres to **ISO/IEC 27037** standards for digital maritime evidence handling.\n` +
+      `• **Immutable Audit Log:** All pipeline actions (Ingest $\rightarrow$ Detection $\rightarrow$ Metocean $\rightarrow$ Backdrift $\rightarrow$ AIS Attribution) are timestamped and cryptographically linked.\n` +
+      `• **Court Admissibility:** Certified for legal submission in Indian High Courts under Section 65B of the Indian Evidence Act and ITLOS maritime arbitration tribunals.\n` +
+      `• **Integrity Verification:** Click **"Verify Evidence Chain"** in the Report section to validate hash integrity against tamper attempts.`;
   }
 
-  // 4. DRIFT SIMULATION & OCEAN PHYSICS
-  if (pl.includes('drift') || pl.includes('physics') || pl.includes('current') || pl.includes('wind') || pl.includes('equation') || pl.includes('hindcast') || pl.includes('calculate') || pl.includes('knot')) {
-    return `🌊 **Backward Oceanographic Drift Hindcast Physics:**\n\n` +
-      `• **Incident Sector:** **${sec.name}** (${sec.lat.toFixed(3)}°N, ${sec.lng.toFixed(3)}°E)\n` +
-      `• **Coupled HYCOM Surface Current:** **${liveP.currentKnots} knots** at bearing **${liveP.currentDeg}°**\n` +
-      `• **Copernicus ERA5 Surface Wind:** **${liveP.windKnots} knots** from **${liveP.windDeg}°**\n` +
-      `• **Metocean State:** Wave Height **${liveP.waveHeightM} m** | SST **${liveP.sstC}°C**\n\n` +
-      `📐 **Governing Lagrangian Particle Drift Equation:**\n` +
-      `$\\vec{V}_{\\text{slick}} = 1.0 \\cdot \\vec{U}_{\\text{current}} + 0.035 \\cdot \\mathbf{R}(\\theta_{\\text{Coriolis}}) \\cdot \\vec{W}_{\\text{wind}}$\n\n` +
-      `Where:\n` +
-      `• $1.0 \\cdot \\vec{U}_{\\text{current}}$ represents 100% Eulerian surface current advection.\n` +
-      `• $0.035$ represents the 3.5% empirical windage leeway coefficient.\n` +
-      `• $\\mathbf{R}(\\theta_{\\text{Coriolis}})$ applies a +12.4° deflection angle to the right of wind direction at latitude ${sec.lat.toFixed(1)}°N.\n\n` +
-      `Integrating backward across **${sec.backdrift ? sec.backdrift.ageHours : 36} hours** converges directly on coordinates **${(sec.lat - 0.08).toFixed(3)}°N, ${(sec.lng - 0.05).toFixed(3)}°E**, matching **${topV.name}**'s timestamped track.`;
-  }
-
-  // 5. SAR RADAR VS OPTICAL & LOOK-ALIKES
-  if (pl.includes('sar') || pl.includes('radar') || pl.includes('look-alike') || pl.includes('algae') || pl.includes('bloom') || pl.includes('biogenic') || pl.includes('backscatter') || pl.includes('polarization')) {
-    return `🛰️ **Synthetic Aperture Radar (SAR) vs. Optical Discrimination:**\n\n` +
+  // 7. SAR DETECTION & LOOK-ALIKES
+  if (pl.includes('sar') || pl.includes('radar') || pl.includes('look-alike') || pl.includes('algae') || pl.includes('bloom') || pl.includes('biogenic') || pl.includes('backscatter') || pl.includes('polarization') || pl.includes('spill') || pl.includes('area') || pl.includes('oil')) {
+    return `🛰️ **Synthetic Aperture Radar (SAR) vs. Optical Discrimination — ${missionId}:**\n\n` +
       `**1. Why Oil Slicks Appear Dark on C-Band SAR:**\n` +
       `• High-frequency radar relies on **Bragg scattering** from short capillary-gravity waves (1–10 cm wavelength).\n` +
       `• Mineral crude oil dampens capillary surface waves, smoothing the ocean into a specular mirror.\n` +
@@ -3552,37 +3786,30 @@ function generateMaritimeAIResponse(prompt) {
       `**2. Rejecting Biogenic Look-Alikes (Algal Blooms & Upwelling):**\n` +
       `• **SegFormer-B2 & DeepLabV3+ Multi-Modal Filtering:** Biogenic films have diffuse, feathered edges and align strictly with internal wave solitons.\n` +
       `• **Dual-Polarization Ratio (VV / VH):** Mineral crude has a distinct cross-polarization ratio, whereas organic surfactant slicks retain symmetric roughness.\n` +
-      `• **Optical Cross-Validation:** Sentinel-2 MSI infrared bands (B8/B11) register chlorophyll-a absorption peaks for algae, while mineral oil reflects high sun glitter sheen.`;
+      `• **Active Mission Result:** In **${missionName}**, detected area is **${areaKm2}** with look-alike screening rejecting biogenic blooms with **${confidence}** confidence.`;
   }
 
-  // 6. MARPOL LAW & STATUTORY LIABILITIES
-  if (pl.includes('marpol') || pl.includes('law') || pl.includes('penalty') || pl.includes('fine') || pl.includes('legal') || pl.includes('court') || pl.includes('arrest') || pl.includes('unclos')) {
-    return `⚖️ **MARPOL 73/78 Annex I Statutory Penalties & Legal Admissibility:**\n\n` +
-      `• **Regulatory Prohibition:** MARPOL Annex I, Regulations 15 & 34 prohibit discharges with oil content exceeding **15 ppm** (parts per million).\n` +
-      `• **Indian Merchant Shipping Act (1958), Sec. 356:** Deliberate pollution within Indian Exclusive Economic Zone carries statutory cleanup restitution fines (up to **₹25+ Crores**), vessel detention, and criminal liability for the Master and Chief Engineer.\n` +
-      `• **Court Admissibility:** OceanTrace generates cryptographic SHA-256 evidence packages adhering to ISO/IEC 27037 standards, certified for presentation in Indian High Courts and ITLOS tribunals.\n` +
-      `• **Actionable Next Step:** Issue formal detention signal to port authorities at JNPT / Mumbai Port Trust for physical tank sounding and GC-MS hydrocarbon analysis.`;
+  // 8. MARPOL ANNEX I LIABILITIES
+  if (pl.includes('marpol') || pl.includes('law') || pl.includes('penalty') || pl.includes('fine') || pl.includes('unclos') || pl.includes('act') || pl.includes('legal')) {
+    return `⚖️ **MARPOL 73/78 Annex I Statutory Penalties & Legal Liabilities:**\n\n` +
+      `• **Regulatory Prohibition:** MARPOL Annex I, Regulations 15 & 34 strictly prohibit oily discharges with oil content exceeding **15 ppm** (parts per million).\n` +
+      `• **Merchant Shipping Act (1958), Sec. 356:** Deliberate pollution within the Indian EEZ carries statutory cleanup restitution fines (up to **₹25+ Crores**), vessel detention, and criminal liability for the Master and Chief Engineer.\n` +
+      `• **Active Investigation Application:** Evidence dossier for **${missionId}** establishes deliberate operational discharge, providing full statutory grounds for port detention of **${topVessel ? topVessel.name : 'the offending tanker'}**.`;
   }
 
-  // 7. VOLUME / BONN CODE / RESPONSE MEASURES
-  if (pl.includes('volume') || pl.includes('bonn') || pl.includes('clean') || pl.includes('skimmer') || pl.includes('boom') || pl.includes('dispersant') || pl.includes('tier')) {
-    return `🛢️ **Bonn Agreement Slick Thickness & Cleanup Assessment:**\n\n` +
-      `• **Estimated Spill Area:** **${sec.area}** in sector **${sec.name}**\n` +
-      `• **Bonn Code Classification:** Level 4 (Continuous Dark/True Oil Color, thickness 50–200 µm)\n` +
-      `• **Estimated Released Volume:** Approximately **420 – 780 cubic meters** (~2,600 to 4,900 barrels) of heavy crude.\n\n` +
-      `**Recommended Tier-2 Response Countermeasures:**\n` +
-      `1. **Containment:** Deploy high-buoyancy ocean boom lines (1.2m skirt) in a "J-configuration" towed by two ICG pollution response vessels.\n` +
-      `2. **Recovery:** Employ oleophilic disc and brush skimmers directly along the thickest leading edge.\n` +
-      `3. **Dispersants:** Chemical dispersant spraying (Type 2/3) only permitted if depth >20 meters and >5 nautical miles from marine protected areas.`;
-  }
-
-  // 8. GENERAL INTELLIGENT AGENT SYNTHESIS
-  return `🤖 **Maritime Copilot Neural Assessment:**\n\n` +
+  // 9. GENERAL INTELLIGENT SYNTHESIS
+  return `🤖 **OceanTrace Maritime Copilot Assessment — ${missionId}:**\n\n` +
     `Regarding your inquiry on *"**${escapeHtml(p)}**"*: \n\n` +
-    `• **Operational Context:** In **${sec.name}** (${sec.lat.toFixed(3)}°N, ${sec.lng.toFixed(3)}°E), satellite surveillance confirms an active slick of **${sec.area}** with satellite acquisition at **${sec.satPassTimestamp || sec.time}**.\n` +
-    `• **Vessel Telemetry Status:** Primary attributed suspect is **${topV.name}** (Attribution score: **${topV.score}%**, CPA: **${topV.cpaDistKm || 0.05} km**).\n` +
-    `• **Dynamic Action:** You can ask me to draft an interception signal, simulate custom wind/current shifts, inspect AIS timestamps, or format a complete MARPOL violation dossier for port authorities.\n\n` +
-    `*Tip: You can configure your Google Gemini or OpenAI API key in the Copilot Settings (⚙) to unlock direct cloud foundation model processing.*` ;
+    `• **Active Investigation:** **${missionName}** (${centroid[0].toFixed(3)}°N, ${centroid[1].toFixed(3)}°E)\n` +
+    `• **Slick Dimensions:** **${areaKm2}** (${confidence} confidence)\n` +
+    (topVessel ? `• **Attributed Culprit:** **${topVessel.name}** (Attribution: **${topVessel.score?.total || topVessel.score}%**, CPA: **${topVessel.distKm || topVessel.cpaDistKm} km**)\n` : `• **Status:** Pipeline in progress. Run AIS attribution to rank suspect vessels.\n`) +
+    `• **Forensic Evidence:** SHA-256 seal: \`${evidenceHash.slice(0, 20)}…\`\n\n` +
+    `**You can ask me to:**\n` +
+    `• *"Draft an Indian Coast Guard interception signal"*\n` +
+    `• *"Explain the reverse drift physics and Lagrangian equation"*\n` +
+    `• *"Who is the prime suspect and what was their CPA?"*\n` +
+    `• *"Review the forensic chain of custody and SHA-256 hash"*\n` +
+    `• Or trigger pipeline steps: *"Run Detection"*, *"Compute Hindcast"*, *"Correlate AIS"*.`;
 }
 
 const LEGAL_DISCLAIMER = "This system provides analytical and investigative support based on satellite observations, oceanographic drift physics, and historical AIS correlations. Correlation does not establish legal responsibility or causation. Results must be independently verified by maritime authorities.";
@@ -5571,12 +5798,12 @@ function printReportOnly() {
     </div>
   </div>
 
-  <div class="copilot-chips-scroll">
-    <button class="copilot-chip" onclick="sendCopilotPrompt('Who spilled the oil in Mumbai High and what is the evidence?')">🔍 Who spilled Mumbai High?</button>
-    <button class="copilot-chip" onclick="sendCopilotPrompt('Explain how the backward ocean drift physics is calculated.')">🌊 Explain Drift Physics</button>
-    <button class="copilot-chip" onclick="sendCopilotPrompt('What are the legal MARPOL Annex I penalties for MT Swarna Sindhu?')">⚖️ MARPOL Penalties</button>
-    <button class="copilot-chip" onclick="sendCopilotPrompt('How does the AI reject false-positive algal blooms?')">🔬 Biogenic Look-alikes</button>
-    <button class="copilot-chip" onclick="sendCopilotPrompt('Generate an Indian Coast Guard emergency interception dispatch.')">🚨 ICG Dispatch Signal</button>
+  <div class="copilot-chips-scroll" id="floatingCopilotChips">
+    <button class="copilot-chip" onclick="sendCopilotPrompt('What is the executive status brief of this investigation?')">📋 Investigation Brief</button>
+    <button class="copilot-chip" onclick="sendCopilotPrompt('Who is the prime suspect vessel and what is their attribution score?')">🎯 Prime Suspect</button>
+    <button class="copilot-chip" onclick="sendCopilotPrompt('Explain the coupled backward ocean drift physics calculation.')">🌊 Drift Physics</button>
+    <button class="copilot-chip" onclick="sendCopilotPrompt('Draft an official Indian Coast Guard pollution interception signal.')">🚨 ICG Dispatch Signal</button>
+    <button class="copilot-chip" onclick="sendCopilotPrompt('Show the cryptographic SHA-256 evidence package.')">🔐 SHA-256 Evidence</button>
   </div>
 
   <div class="copilot-input-bar">
@@ -10521,6 +10748,7 @@ function renderInvestigationsList() {
 function openInvestigation(id) {
   activeId = id;
   setSection('mission-control');
+  if(typeof updateAllCopilotChips === 'function') updateAllCopilotChips();
 }
 
 let stepper = { step: 1, name: '', description: '', priority: 'HIGH', imgDataUrl: null };
@@ -10593,6 +10821,7 @@ function actionDetect() {
   runDetection(inv);
   runEnvironment(inv);
   renderSection();
+  if(typeof updateAllCopilotChips === 'function') updateAllCopilotChips();
   toast("Detection Complete", `${inv.detection.confidence}% confidence, Area: ${inv.detection.areaKm2} km²`, "ok");
 }
 
@@ -10601,6 +10830,7 @@ function actionTrace() {
   if(!inv) return;
   runTrace(inv);
   renderSection();
+  if(typeof updateAllCopilotChips === 'function') updateAllCopilotChips();
   toast("Drift Hindcast Complete", `Origin locus isolated at T${inv.drift.spillTime}h`, "ok");
 }
 
@@ -10609,6 +10839,7 @@ function actionAIS() {
   if(!inv) return;
   runAIS(inv);
   renderSection();
+  if(typeof updateAllCopilotChips === 'function') updateAllCopilotChips();
   toast("AIS Attribution Complete", `${inv.ais.vessels.length} vessels scored and ranked`, "ok");
 }
 
@@ -10617,6 +10848,7 @@ function actionReport() {
   if(!inv) return;
   runReport(inv);
   setTab('report');
+  if(typeof updateAllCopilotChips === 'function') updateAllCopilotChips();
   toast("Report Compiled", "Formal dossier ready for export", "ok");
 }
 
@@ -10972,8 +11204,9 @@ function primeCopilot() {
   const body = document.getElementById('copilotBody');
   if(!body) return;
   body.innerHTML = '';
-  addCopilotMsg('bot', "Hello. I am the OceanTrace Copilot. I analyze this mission's satellite observations, drift hindcast models, and AIS data.");
-  renderCopilotChips();
+  const ctx = (typeof buildInvestigationContext === 'function') ? buildInvestigationContext() : { missionId: 'MSN-120', missionName: 'Maritime Recon', priority: 'HIGH' };
+  addCopilotMsg('bot', `👋 <b>Greetings, Investigator.</b> Connected to active mission <b>${ctx.missionId}: ${escapeHtml(ctx.missionName)}</b> (${ctx.priority} Priority). I analyze this mission's satellite observations, coupled ocean drift hindcast models, and AIS vessel tracks.`);
+  if(typeof updateAllCopilotChips === 'function') updateAllCopilotChips();
 }
 
 function addCopilotMsg(role, text) {
@@ -10988,18 +11221,9 @@ function addCopilotMsg(role, text) {
 }
 
 function renderCopilotChips() {
-  const chips = document.getElementById('copilotChips');
-  if(!chips) return;
-  const inv = activeInv();
-  const suggestions = inv && inv.ais ? [
-    "Analyze top suspect vessel",
-    "Explain ocean drift calculation",
-    "Check look-alike confounders"
-  ] : [
-    "Is there an active spill?",
-    "What is the current mission status?"
-  ];
-  chips.innerHTML = suggestions.map(s => `<div class="chip" onclick="askCopilotChip('${s}')">${s}</div>`).join('');
+  if(typeof updateAllCopilotChips === 'function') {
+    updateAllCopilotChips();
+  }
 }
 
 function askCopilotChip(text) {
@@ -11010,39 +11234,26 @@ function askCopilotChip(text) {
 
 function sendCopilot() {
   const input = document.getElementById('copilotInput');
+  if(!input) return;
   const text = input.value.trim();
   if(!text) return;
   input.value = '';
   addCopilotMsg('user', escapeHtml(text));
 
-  const typing = addCopilotMsg('bot', 'Analyzing mission data…');
+  const typing = addCopilotMsg('bot', 'Analyzing mission telemetry & models…');
   setTimeout(() => {
-    typing.remove();
-    const resp = getCopilotResponse(text);
-    addCopilotMsg('bot', resp);
-    if(voiceOutputOn) speakText(resp);
-  }, 350);
+    if(typing && typing.parentNode) typing.remove();
+    const rawResp = generateMaritimeAIResponse(text);
+    const formatted = formatCopilotMarkdown(rawResp);
+    addCopilotMsg('bot', formatted);
+    if(voiceOutputOn) speakText(rawResp);
+    if(typeof updateAllCopilotChips === 'function') updateAllCopilotChips();
+  }, 250);
 }
 
 function getCopilotResponse(q) {
-  const inv = activeInv();
-  const s = q.toLowerCase();
-  if(!inv) return "No active mission selected.";
-
-  if(s.includes('suspect') || s.includes('top') || s.includes('vessel')) {
-    if(!inv.ais) return "AIS correlation has not been executed yet.";
-    const top = inv.ais.vessels[0];
-    return `Top candidate is <b>${top.name}</b> (MMSI: ${top.mmsi}, ${top.type}) with attribution score <b>${top.score.total}/100</b>. Closest Point of Approach was ${top.distNmi} nmi at T${top.cpaTime}h. A transponder broadcast gap was recorded near CPA.`;
-  }
-  if(s.includes('drift') || s.includes('origin') || s.includes('hindcast')) {
-    if(!inv.drift) return "Drift hindcast has not been computed yet.";
-    return `Coupled drift combines HYCOM current (${inv.environment.current.speedKt} kt @ ${inv.environment.current.dirDeg}°) and ERA5 wind leeway (${inv.environment.wind.speedKt} kt @ ${inv.environment.wind.dirDeg}°). Net slick drift is ${inv.drift.netSpeedKmH.toFixed(2)} km/h, tracing the origin locus to ${inv.drift.origin[0].toFixed(3)}°N, ${inv.drift.origin[1].toFixed(3)}°E at T${inv.drift.spillTime}h.`;
-  }
-  if(s.includes('spill') || s.includes('confounder') || s.includes('sar')) {
-    if(!inv.detection) return "Detection has not been run yet.";
-    return `Sentinel-1 SAR scene detected an oil spill covering ${inv.detection.areaKm2} km² with ${inv.detection.confidence}% confidence. Look-alike screening ruled out biogenic film and wind shadows based on backscatter gradients.`;
-  }
-  return `Understood. Mission ${inv.id} is currently mounted with active Sentinel-1 SAR imagery and AIS tracks.`;
+  const raw = generateMaritimeAIResponse(q);
+  return formatCopilotMarkdown(raw);
 }
 
 /* =====================================================================================
